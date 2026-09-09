@@ -1,6 +1,7 @@
 import { classify, classifyVerdict, CATEGORY, TRIGGER_FOR } from './filter.js';
 import { reconcile, isHidden, keyOf } from './hidden.js';
 import { approvalsOf, changesRequestedOf } from './approvals.js';
+import { isStaleStack } from './stale.js';
 
 // Max concurrency of `gh` calls (avoids spawning dozens of processes at once /
 // hitting GitHub's secondary rate-limit). Lowered to smooth out the cold-start
@@ -387,6 +388,7 @@ export function buildRow(e, d, ignoredForRepo = []) {
     // Merge conflict with the base branch. Only an explicit CONFLICTING counts:
     // UNKNOWN means « GitHub has not computed it yet » (cf. github.js), not « fine ».
     conflicting: d?.mergeable === 'CONFLICTING',
+    staleStack: false, // set by collectPRs (§31): the conflict drags a rewritten parent's commits
     approvals: approvalsOf(d?.reviews).length,
     changesRequested: changesRequestedOf(d?.reviews).length, // reviewers whose latest review requests changes
   };
@@ -509,12 +511,24 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   }
   const entries = seen.map(([e]) => e);
 
+  // Stale stacks (§31): among the CONFLICTING PRs, which ones drag another
+  // PR's commits (parent force-pushed / squash-merged)? A second small batch,
+  // only for those. `gh.getStaleSignals` may be absent (older stub) → no flag.
+  const conflicting = seen.filter(([, d]) => d?.mergeable === 'CONFLICTING');
+  const signals = conflicting.length && gh.getStaleSignals
+    ? await gh.getStaleSignals(conflicting.map(([e]) => ({ repo: e.repo, number: e.number })))
+    : [];
+  const stale = new Set(conflicting
+    .filter(([e], i) => isStaleStack(e.number, signals[i]))
+    .map(([e]) => `${e.repo}#${e.number}`));
+
   const mineAll = [];   // my PRs (drafts kept), before hide filtering
   const othersAll = []; // others' PRs (excluding drafts), before hide filtering
   const approvalEvents = []; // one entry per approval on MY open PRs
   seen.forEach(([e, d]) => {
     const approvers = approvalsOf(d?.reviews);
     const row = buildRow(e, d, ignoredFor(ignoredChecks, e.repo));
+    row.staleStack = stale.has(`${e.repo}#${e.number}`);
     if (d && d.author?.login === me) {
       mineAll.push(row); // my PRs: we keep my drafts
       // Approval events: only on my OPEN PRs (not draft/merged/
@@ -528,8 +542,8 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
           });
         }
       }
-    } else if (row.state !== 'draft') {
-      othersAll.push(row); // others' PRs: we hide the drafts
+    } else if (row.state !== 'draft' && !row.staleStack) {
+      othersAll.push(row); // others' PRs: we hide the drafts and the stale stacks (§31)
     }
   });
 

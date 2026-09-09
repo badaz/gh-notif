@@ -429,3 +429,47 @@ test('search: incomplete_results with every item present is not a truncation', a
   const out = await makeGh(runner).searchAuthored();
   assert.equal(out.length, 2);
 });
+
+// ── getStaleSignals (stale stacks, §31) ──────────────────────────────────
+
+test('getStaleSignals: one GraphQL request, alias per PR, commits + parent force-push old heads', async () => {
+  const gqlResponse = JSON.stringify({ data: {
+    p0: { pullRequest: {
+      history: { nodes: [
+        { commit: { oid: 'a1old', associatedPullRequests: { nodes: [{ number: 7, state: 'OPEN' }, { number: 8, state: 'OPEN' }] } } },
+        { commit: { oid: 'b1', associatedPullRequests: { nodes: [{ number: 7, state: 'OPEN' }] } } },
+      ] },
+      baseRef: { associatedPullRequests: { nodes: [{
+        timelineItems: { nodes: [{ beforeCommit: { oid: 'a1old' } }, { beforeCommit: null }, {}] },
+      }] } },
+    } },
+    p1: { pullRequest: { history: { nodes: [] }, baseRef: null } }, // base branch deleted
+    p2: { pullRequest: null }, // PR not found
+  } });
+  const runner = fakeRunner([['api graphql', gqlResponse]]);
+  const out = await makeGh(runner).getStaleSignals([{ repo: 'o/r', number: 7 }, { repo: 'o/r', number: 9 }, { repo: 'o/r', number: 10 }]);
+
+  assert.equal(runner.calls.length, 1);
+  const query = runner.calls[0].join(' ');
+  assert.ok(query.includes('HEAD_REF_FORCE_PUSHED_EVENT'));
+  assert.ok(query.includes('pullRequest(number: 7)'));
+  assert.deepEqual(out, [
+    {
+      commits: [
+        { oid: 'a1old', prs: [{ number: 7, state: 'OPEN' }, { number: 8, state: 'OPEN' }] },
+        { oid: 'b1', prs: [{ number: 7, state: 'OPEN' }] },
+      ],
+      parentForcePushed: ['a1old'],
+    },
+    { commits: [], parentForcePushed: [] },
+    null,
+  ]);
+});
+
+test('getStaleSignals: empty input → no request; a failed request → nulls (never throws)', async () => {
+  const runner = fakeRunner([]);
+  assert.deepEqual(await makeGh(runner).getStaleSignals([]), []);
+  assert.equal(runner.calls.length, 0);
+  const failing = makeGh(async () => { throw new Error('boom'); });
+  assert.deepEqual(await failing.getStaleSignals([{ repo: 'o/r', number: 7 }]), [null]);
+});

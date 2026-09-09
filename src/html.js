@@ -149,6 +149,9 @@ const STATE_TOGGLE = {
   draft: { to: 'ready', title: 'Draft — click to mark as ready for review', ask: (n) => `Mark #${n} as ready for review?`, ok: 'Ready for review' },
   open: { to: 'draft', title: 'Open — click to convert to draft', ask: (n) => `Convert #${n} back to draft? Its requested reviewers will be removed.`, ok: 'Convert to draft' },
 };
+// `conflicting` = true → « Merge conflicts »; 'stale' → the conflict is a
+// stale stack (§31: trailing commits of a rewritten parent — rebase, not review).
+const CONFLICT_TITLE = { true: 'Merge conflicts', stale: 'Stale stack — trailing commits of a force-pushed or squash-merged parent, rebase' };
 const stateCell = (state, conflicting = false, toggleRow = null) => {
   const t = toggleRow ? STATE_TOGGLE[state] : null;
   const key = t ? escapeHtml(`${toggleRow.repo}#${toggleRow.number}`) : '';
@@ -156,7 +159,7 @@ const stateCell = (state, conflicting = false, toggleRow = null) => {
     ? `<button class="state-btn" data-key="${key}" data-to="${t.to}" title="${t.title}">${stateIcon(state)}</button>`
       + `<div class="state-pop" hidden><p>${t.ask(toggleRow.number)}</p><button class="state-ok" data-key="${key}" data-to="${t.to}">${t.ok}</button></div>`
     : titled(STATE_LABEL[state] || state || '', stateIcon(state));
-  return icon + (conflicting ? ` ${titled('Merge conflicts', CONFLICT_ICON)}` : '');
+  return icon + (conflicting ? ` ${titled(CONFLICT_TITLE[conflicting], CONFLICT_ICON)}` : '');
 };
 // GitHub check-state octicons (x / dot-fill / check), inline SVG tinted with the
 // Primer state colors — the row icons of GitHub's own checks dropdown.
@@ -487,7 +490,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     dateCell('Updated', r.updatedAt, now),
     diffCell(r),
     filesCell(r),
-    stateCell(r.state, r.conflicting, hidden ? null : r), // a hidden row only offers « restore »
+    stateCell(r.state, r.conflicting && (r.staleStack ? 'stale' : true), hidden ? null : r), // a hidden row only offers « restore »
     approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
     triggersCell(r.triggers),
     ciCell(r, ignoredChecks),

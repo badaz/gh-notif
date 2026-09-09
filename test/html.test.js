@@ -84,6 +84,12 @@ test('renderFragment: no merge-conflict icon without conflicting', () => {
   assert.ok(!out.includes('Merge conflicts'));
 });
 
+test('renderFragment: a stale-stack conflict on my PR says so in the tooltip (§31)', () => {
+  const out = renderFragment({ mine: [myRow({ conflicting: true, staleStack: true })], others: [] }, { now: NOW });
+  assert.match(out, /title="Stale stack — trailing commits of a force-pushed or squash-merged parent, rebase">⚠️</);
+  assert.ok(!out.includes('title="Merge conflicts"'));
+});
+
 test('renderFragment: the conflict icon also appears on others\' PRs', () => {
   const out = renderFragment({ mine: [], others: [otherRow({ conflicting: true })] }, { now: NOW });
   assert.match(out, /title="Merge conflicts"/);

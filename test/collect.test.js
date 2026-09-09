@@ -1198,3 +1198,54 @@ test('collectPRs: a truncated review-requested search keeps the remembered reque
   assert.deepEqual(data.others[0].triggers, ['review']);
   assert.deepEqual(nums(searchMemo.pending.items), [1]);
 });
+
+// ── Stale stacks (§31): a conflicting PR dragging another PR's commits ───────
+
+const conflictingDetail = (number, login) => ({
+  number, title: `PR ${number}`, author: { login }, createdAt: '2026-06-19T09:00:00Z',
+  additions: 1, deletions: 1, isDraft: false, state: 'OPEN', mergeable: 'CONFLICTING', statusCheckRollupState: 'SUCCESS',
+});
+const entry = (repo, number) => ({ number, title: `PR ${number}`, html_url: `https://github.com/${repo}/pull/${number}`, updated_at: '2026-06-20T09:00:00Z', repository_url: `https://api.github.com/repos/${repo}` });
+const staleSignal = { commits: [{ oid: 'a1', prs: [{ number: 6, state: 'MERGED' }] }], parentForcePushed: [] };
+const legitSignal = { commits: [{ oid: 'b1', prs: [] }], parentForcePushed: [] };
+
+test('collectPRs: a stale-stack conflict on someone else\'s PR is dropped from others, a legit conflict stays', async () => {
+  const asked = [];
+  const gh = {
+    ...fakeGh({
+      search: [entry('o/r', 70), entry('o/r', 71), entry('o/r', 72)],
+      details: (repo, number) => number === 72
+        ? { ...conflictingDetail(72, 'alice'), mergeable: 'MERGEABLE' }
+        : conflictingDetail(number, 'alice'),
+    }),
+    async getStaleSignals(prs) {
+      asked.push(...prs.map((p) => p.number));
+      return prs.map((p) => (p.number === 70 ? staleSignal : legitSignal));
+    },
+  };
+  const { others } = await collectPRs(gh, ME, {});
+  assert.deepEqual(asked.sort(), [70, 71]); // only the CONFLICTING PRs are inspected
+  assert.deepEqual(others.map((r) => r.number).sort(), [71, 72]);
+  assert.equal(others.find((r) => r.number === 71).staleStack, false);
+});
+
+test('collectPRs: a stale-stack conflict on MY PR stays in mine, flagged staleStack', async () => {
+  const gh = {
+    ...fakeGh({ authored: [entry('o/r', 80)], details: (repo, number) => conflictingDetail(number, ME) }),
+    async getStaleSignals(prs) { return prs.map(() => staleSignal); },
+  };
+  const { mine } = await collectPRs(gh, ME, {});
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].conflicting, true);
+  assert.equal(mine[0].staleStack, true);
+});
+
+test('collectPRs: no stale signal (fetch failed) → the conflicting PR is kept', async () => {
+  const gh = {
+    ...fakeGh({ search: [entry('o/r', 70)], details: (repo, number) => conflictingDetail(number, 'alice') }),
+    async getStaleSignals(prs) { return prs.map(() => null); },
+  };
+  const { others } = await collectPRs(gh, ME, {});
+  assert.equal(others.length, 1);
+  assert.equal(others[0].staleStack, false);
+});

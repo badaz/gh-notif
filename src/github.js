@@ -116,17 +116,57 @@ function normalizePull(pr) {
   };
 }
 
+// Stale-stack signals (ARCHITECTURE §31), fetched for the CONFLICTING PRs
+// only (a second, small batch — 100 commits × their associated PRs per PR
+// would weigh on the main batch for nothing). `history` = the PR's own commit
+// list (base..head; aliased: `commits` is already used for the CI rollup).
+// `baseRef.associatedPullRequests` = the open PR whose HEAD is our base
+// branch (the parent of a stack; null on main / a deleted branch), and its
+// force-push events give the old heads it left behind.
+const STALE_FRAGMENT = `fragment stale on PullRequest {
+  history: commits(first: 100) { nodes { commit { oid associatedPullRequests(first: 5) { nodes { number state } } } } }
+  baseRef { associatedPullRequests(first: 1, states: OPEN) { nodes {
+    timelineItems(itemTypes: HEAD_REF_FORCE_PUSHED_EVENT, last: 20) { nodes { ... on HeadRefForcePushedEvent { beforeCommit { oid } } } }
+  } } }
+}`;
+
+function normalizeStale(pr) {
+  if (!pr) return null;
+  return {
+    commits: (pr.history?.nodes ?? []).map((n) => ({
+      oid: n.commit.oid,
+      prs: (n.commit.associatedPullRequests?.nodes ?? []).map((p) => ({ number: p.number, state: p.state })),
+    })),
+    parentForcePushed: (pr.baseRef?.associatedPullRequests?.nodes?.[0]?.timelineItems?.nodes ?? [])
+      .map((e) => e?.beforeCommit?.oid)
+      .filter(Boolean),
+  };
+}
+
 export function makeGh(runner = defaultRunner) {
   // One GraphQL request per PR batch (aliases p0,p1,… → one repository/pullRequest
-  // each). Returns an array aligned with `chunk` (null if PR not found).
-  async function graphqlPullChunk(chunk) {
+  // each, spreading `fragment` — `...pr` by default). Returns an array aligned
+  // with `chunk` (null if PR not found), each node passed through `normalize`.
+  async function graphqlPullChunk(chunk, { fragment = PR_FRAGMENT, spread = 'pr', normalize = normalizePull } = {}) {
     const aliases = chunk.map(({ repo, number }, i) => {
       const [owner, name] = repo.split('/');
-      return `p${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${Number(number)}) { ...pr } }`;
+      return `p${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${Number(number)}) { ...${spread} } }`;
     });
-    const query = `query {\n${aliases.join('\n')}\n}\n${PR_FRAGMENT}`;
+    const query = `query {\n${aliases.join('\n')}\n}\n${fragment}`;
     const data = parseJson(await runner(['api', 'graphql', '-f', `query=${query}`]))?.data ?? {};
-    return chunk.map((_, i) => normalizePull(data[`p${i}`]?.pullRequest));
+    return chunk.map((_, i) => normalize(data[`p${i}`]?.pullRequest));
+  }
+
+  // Chunks of 30 in parallel; a failed chunk degrades to nulls (never throws).
+  async function batched(prs, opts) {
+    if (!prs || prs.length === 0) return [];
+    const CHUNK = 30;
+    const chunks = [];
+    for (let i = 0; i < prs.length; i += CHUNK) chunks.push(prs.slice(i, i + CHUNK));
+    const results = await Promise.all(
+      chunks.map((c) => graphqlPullChunk(c, opts).catch(() => c.map(() => null))),
+    );
+    return results.flat();
   }
 
   // `search/issues` returns **30 results per page by default**: without an
@@ -212,14 +252,12 @@ export function makeGh(runner = defaultRunner) {
     // parallel). Returns an array aligned with `prs` ([{repo, number}]); null
     // for a PR not found, and null for an entire failed chunk (degradation).
     async getPullDetailsBatch(prs) {
-      if (!prs || prs.length === 0) return [];
-      const CHUNK = 30;
-      const chunks = [];
-      for (let i = 0; i < prs.length; i += CHUNK) chunks.push(prs.slice(i, i + CHUNK));
-      const results = await Promise.all(
-        chunks.map((c) => graphqlPullChunk(c).catch(() => c.map(() => null))),
-      );
-      return results.flat();
+      return batched(prs);
+    },
+    // Stale-stack signals (§31) of N PRs — same batching, `stale` fragment.
+    // Aligned with `prs`; null for a PR not found or a failed chunk.
+    async getStaleSignals(prs) {
+      return batched(prs, { fragment: STALE_FRAGMENT, spread: 'stale', normalize: normalizeStale });
     },
     async searchReviewRequested(qualifier = '') {
       return searchIssues(`is:open is:pr review-requested:@me${qualifier}`);
