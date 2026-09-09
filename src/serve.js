@@ -371,8 +371,14 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   const searchResult = (raw, { force = false } = {}) => {
     const query = searchQuery(raw || SEARCH_DEFAULT_QUERY);
     const hit = searchCache.get(query);
-    if (hit && !shouldRefresh(hit.fetchedAt, Date.now(), force ? REFRESH_MIN_AGE_MS : SEARCH_TTL_MS)) return Promise.resolve(hit);
-    if (searchPending.has(query)) return searchPending.get(query);
+    // One line per decision in the journal: the only way to tell, after the fact,
+    // whether a « stale » page came from this cache (age ≤ 5 min by construction)
+    // or from somewhere else (browser, GitHub's search index).
+    const age = hit ? Math.round((Date.now() - hit.fetchedAt) / 1000) : null;
+    const log = (what) => process.stderr.write(`🔍 search ${what} · ${query} · ${hit ? `cached ${age}s ago, ${hit.rows.length} rows` : 'no cache'}${force ? ' · forced' : ''}\n`);
+    if (hit && !shouldRefresh(hit.fetchedAt, Date.now(), force ? REFRESH_MIN_AGE_MS : SEARCH_TTL_MS)) { log('hit'); return Promise.resolve(hit); }
+    if (searchPending.has(query)) { log('pending'); return searchPending.get(query); }
+    log('fetch');
     const p = collectSearch(gh, query, { max: SEARCH_MAX, ignoredChecks })
       .then((r) => {
         const entry = { ...r, fetchedAt: Date.now() };
