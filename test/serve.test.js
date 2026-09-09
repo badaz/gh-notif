@@ -1155,16 +1155,16 @@ test('search page: one fetch per query, sort/page from the cache, refresh refetc
     assert.match(f2, />t26</, 'diff asc (additions = number): page 2 = #26–#30');
 
     const f3 = await (await fetch(`${base}/search/refresh?q=${q}`, { method: 'POST' })).text();
-    assert.equal(searches, 2, 'refresh bypasses the cache');
+    assert.equal(searches, 1, 'refresh is debounced like POST /refresh: fetched < 10 s ago → served from the cache');
     assert.match(f3, /30 PRs/);
 
     fail = true;
     const f4 = await (await fetch(`${base}/search-fragment?q=${encodeURIComponent('author:bob')}`)).text();
-    assert.equal(searches, 3);
+    assert.equal(searches, 2);
     assert.match(f4, /⚠️ .*rate limit/);
     fail = false;
     await fetch(`${base}/search-fragment?q=${encodeURIComponent('author:bob')}`);
-    assert.equal(searches, 4, 'an error is not cached');
+    assert.equal(searches, 3, 'an error is not cached');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });

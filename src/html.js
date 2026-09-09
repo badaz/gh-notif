@@ -1995,7 +1995,10 @@ const SEARCH_LOADING = '<p class="empty" data-loading="1"><span class="spinner">
 // the dashboard's columns. Same head (CSS) as the dashboard, its own tiny
 // script: the URL is the state, the client fetches /search-fragment with it,
 // pushState on sort/pager clicks, re-reads it on popstate. No auto-poll: the
-// data is fetched on demand (🔄 bypasses the server cache).
+// data is fetched on demand. A page load (dashboard link, ctrl+R) POSTs
+// /search/refresh like the dashboard does: a fresh page never shows a stale
+// cache — the server debounces it (10 s), so sort/page/back stay 0 GitHub call
+// while a new visit refetches.
 export function renderSearchShell({ q = '', theme = 'auto' } = {}) {
   return `${shellHead(theme, 'gh notif · search')}
 <body>
@@ -2004,7 +2007,7 @@ export function renderSearchShell({ q = '', theme = 'auto' } = {}) {
   <form class="search" id="search">
     <input id="q" name="q" value="${escapeHtml(q)}" placeholder="is:open author:alice org:acme label:bug …" autocomplete="off" spellcheck="false">
     <button type="submit" title="Search">Search</button>
-    <button type="button" id="refresh" title="Fetch again (bypasses the 5 min cache)">🔄</button>
+    <button type="button" id="refresh" title="Fetch again (bypasses the cache)">🔄</button>
     <span id="busy" class="spinner" hidden title="Searching…"></span>
   </form>
 </header>
@@ -2066,7 +2069,7 @@ ${TABLE_JS}
     var pg = e.target.closest('a[data-page]');
     if (pg && e.button === 0 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); go(pg.getAttribute('href')); }
   });
-  load(false);
+  load(true);
 </script>
 </body>
 </html>`;

@@ -892,10 +892,14 @@ sequenceDiagram
       `sort=updated&order=desc` and stops paging at the cap; `total_count` is kept so the page
       says « the 200 most recently updated of 1234 — refine the query »), and cached **5 min
       per normalized query** in `serve.js` (`searchCache`, 10 entries, oldest evicted). A sort
-      or page change costs **zero** GitHub call: it re-sorts/slices the cached rows. 🔄 =
-      `POST /search/refresh` bypasses the cache. ⚠️ **Errors are never cached** (a rate-limit
-      must be retryable on the next click) and concurrent identical queries share ONE in-flight
-      fetch (`searchPending`).
+      or page change costs **zero** GitHub call: it re-sorts/slices the cached rows.
+      `POST /search/refresh` (🔄 **and every page load**, like the dashboard's ctrl+R) refetches
+      unless the entry is younger than `REFRESH_MIN_AGE_MS` (10 s, same `shouldRefresh` debounce
+      as `POST /refresh`). ⚠️ Trap: the first version served the 5 min cache on page load too —
+      « my closed PRs » clicked after merging a PR showed it still open, and the user had to
+      click 🔄. Sort/page/back (`/search-fragment`) keep the 5 min TTL. ⚠️ **Errors are never
+      cached** (a rate-limit must be retryable on the next click) and concurrent identical
+      queries share ONE in-flight fetch (`searchPending`).
     - **`is:pr` is forced** (`searchQuery`: trims, collapses whitespace, prepends `is:pr` unless
       already present) — PRs only, never issues; the normalized string is the cache key.
     - **The URL is the state**: `/search?q=…&sort=…&dir=…&page=N` (`searchUrl`; default sort

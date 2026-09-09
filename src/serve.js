@@ -362,14 +362,16 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
 
   // Search page (§29): on demand, NEVER in the poll. One collectSearch per
   // distinct query, cached SEARCH_TTL_MS (sort/page = 0 GitHub call), refetched
-  // on demand (POST /search/refresh). Errors are NOT cached (a rate-limit must
-  // be retryable) and concurrent identical queries share one in-flight fetch.
+  // by POST /search/refresh (page load, 🔄) — debounced like POST /refresh
+  // (REFRESH_MIN_AGE_MS): a stale entry is refetched, spamming ctrl+R is not
+  // spamming GitHub. Errors are NOT cached (a rate-limit must be retryable) and
+  // concurrent identical queries share one in-flight fetch.
   const searchCache = new Map(); // normalized query → { …collectSearch result, fetchedAt }
   const searchPending = new Map(); // normalized query → in-flight promise
   const searchResult = (raw, { force = false } = {}) => {
     const query = searchQuery(raw || SEARCH_DEFAULT_QUERY);
     const hit = searchCache.get(query);
-    if (!force && hit && Date.now() - hit.fetchedAt < SEARCH_TTL_MS) return Promise.resolve(hit);
+    if (hit && !shouldRefresh(hit.fetchedAt, Date.now(), force ? REFRESH_MIN_AGE_MS : SEARCH_TTL_MS)) return Promise.resolve(hit);
     if (searchPending.has(query)) return searchPending.get(query);
     const p = collectSearch(gh, query, { max: SEARCH_MAX, ignoredChecks })
       .then((r) => {

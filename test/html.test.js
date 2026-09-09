@@ -1286,6 +1286,7 @@ test('renderSearchShell: query pre-filled and escaped, theme applied; the dashbo
   assert.match(out, /data-theme="dark"/);
   assert.match(out, /id="q"[^>]*value="author:&quot;a &lt;b&gt;&quot;"/);
   assert.match(out, /\/search-fragment/);
+  assert.match(out, /\n  load\(true\);\n<\/script>/, 'page load = POST /search/refresh (a fresh page never shows a stale cache)');
   assert.match(out, /function showPop/, 'shared table JS inlined');
   assert.match(out, /<main id="content"><p class="empty" data-loading="1"><span class="spinner"><\/span> Searching…<\/p><\/main>/, 'spinner while the first fetch runs');
   assert.match(out, /<span id="busy" class="spinner" hidden/, 'header spinner for the later fetches');
