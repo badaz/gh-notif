@@ -1106,3 +1106,95 @@ test('collectSearch: the per-repo CI blocklist applies (same rows as the dashboa
   assert.equal(r.rows[0].ci, 'none');
   assert.equal(r.capped, false);
 });
+
+// ── Truncated searches (ARCHITECTURE §10) ─────────────────────────────────
+// GitHub's search answers a partial list on an internal timeout: either a
+// hard truncation (err.incomplete thrown by github.js, items < total_count) or
+// a self-consistent one (`incomplete_results` flag, total_count itself
+// under-reported). Absence from such a response never removes a PR: the last
+// known list (memo owned by serve.js, keyed by qualifier) is merged in and the
+// GraphQL details — already fetched — decide who is really gone.
+
+function incompleteError(items) {
+  const err = new Error(`incomplete search results (${items.length}/26)`);
+  err.incomplete = true;
+  err.items = items;
+  return err;
+}
+const flagged = (items) => Object.defineProperty(items, 'incomplete', { value: true });
+const authoredItem = (n) => ({ repository_url: 'https://api.github.com/repos/o/r', number: n, title: `PR ${n}`, html_url: `https://github.com/o/r/pull/${n}` });
+const mineDetails = (repo, number) => ({ author: { login: ME }, title: `PR ${number}`, state: 'OPEN', reviews: [] });
+const nums = (rows) => rows.map((r) => r.number).sort();
+
+test('collectPRs: a truncated authored search keeps the PRs of the last list that GraphQL still shows open', async () => {
+  const searchMemo = {};
+  const complete = await collectPRs(fakeGh({ authored: [1, 2, 3].map(authoredItem), details: mineDetails }), ME, { searchMemo });
+  assert.deepEqual(nums(complete.mine), [1, 2, 3]);
+
+  const gh = fakeGh({ details: (repo, n) => ({ ...mineDetails(repo, n), state: n === 3 ? 'MERGED' : 'OPEN' }) });
+  gh.searchAuthored = async () => { throw incompleteError([authoredItem(1)]); };
+  const warned = [];
+  const data = await collectPRs(gh, ME, { searchMemo, warn: (m) => warned.push(m) });
+  assert.deepEqual(nums(data.mine), [1, 2], '#2 survives the truncation, #3 is gone for real (merged)');
+  assert.equal(warned.length, 1);
+  assert.match(warned[0], /authored/);
+  assert.deepEqual(nums(searchMemo.authored.items), [1, 2], 'the memo forgets the merged PR');
+});
+
+test('collectPRs: a flagged (incomplete_results) but full-looking response is merged with the memo too', async () => {
+  const searchMemo = {};
+  await collectPRs(fakeGh({ authored: [1, 2].map(authoredItem), details: mineDetails }), ME, { searchMemo });
+  const data = await collectPRs(fakeGh({ authored: flagged([authoredItem(1)]), details: mineDetails }), ME, { searchMemo });
+  assert.deepEqual(nums(data.mine), [1, 2]);
+});
+
+test('collectPRs: an unflagged response is authoritative — an absent PR disappears', async () => {
+  const searchMemo = {};
+  await collectPRs(fakeGh({ authored: [1, 2].map(authoredItem), details: mineDetails }), ME, { searchMemo });
+  const data = await collectPRs(fakeGh({ authored: [authoredItem(1)], details: mineDetails }), ME, { searchMemo });
+  assert.deepEqual(nums(data.mine), [1]);
+  assert.deepEqual(nums(searchMemo.authored.items), [1]);
+});
+
+test('collectPRs: a truncated search without a memo keeps the partial items (something beats nothing)', async () => {
+  const gh = fakeGh({ details: mineDetails });
+  gh.searchAuthored = async () => { throw incompleteError([authoredItem(1)]); };
+  const data = await collectPRs(gh, ME, { searchMemo: {} });
+  assert.deepEqual(nums(data.mine), [1]);
+});
+
+test('collectPRs: the memo is per scope qualifier — another scope does not reuse it', async () => {
+  const searchMemo = {};
+  await collectPRs(fakeGh({ authored: [1, 2].map(authoredItem), details: mineDetails }), ME, { searchMemo, scope: { type: 'org', value: 'a' } });
+  const gh = fakeGh({ details: mineDetails });
+  gh.searchAuthored = async () => { throw incompleteError([authoredItem(9)]); };
+  const data = await collectPRs(gh, ME, { searchMemo, scope: { type: 'org', value: 'b' } });
+  assert.deepEqual(nums(data.mine), [9]);
+});
+
+test('collectPRs: a non-truncation search error still propagates (rate-limit backoff)', async () => {
+  const gh = fakeGh({ details: mineDetails });
+  gh.searchReviewRequested = async () => { throw new Error('HTTP 403: rate limit'); };
+  await assert.rejects(collectPRs(gh, ME, { searchMemo: { pending: { qualifier: '', items: [] } } }), /rate limit/);
+});
+
+// Pending reviews: a remembered request stays only while GraphQL shows the PR
+// open AND without an opinionated review of mine (reviewed → GitHub drops the
+// request; an unflagged search would drop it too).
+test('collectPRs: a truncated review-requested search keeps the remembered requests until reviewed or merged', async () => {
+  const searchMemo = {};
+  const others = (repo, n) => ({ author: { login: 'alice' }, title: `PR ${n}`, state: 'OPEN', reviews: [] });
+  const first = await collectPRs(fakeGh({ search: [1, 2, 3].map(authoredItem), details: others }), ME, { searchMemo });
+  assert.deepEqual(nums(first.others), [1, 2, 3]);
+
+  const gh = fakeGh({ details: (repo, n) => ({
+    ...others(repo, n),
+    state: n === 2 ? 'MERGED' : 'OPEN',
+    reviews: n === 3 ? [{ author: { login: ME }, state: 'APPROVED', submittedAt: '2026-09-09T00:00:00Z' }] : [],
+  }) });
+  gh.searchReviewRequested = async () => { throw incompleteError([]); };
+  const data = await collectPRs(gh, ME, { searchMemo });
+  assert.deepEqual(nums(data.others), [1], '#2 merged and #3 reviewed by me are gone, #1 survives');
+  assert.deepEqual(data.others[0].triggers, ['review']);
+  assert.deepEqual(nums(searchMemo.pending.items), [1]);
+});

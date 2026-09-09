@@ -142,13 +142,33 @@ export function makeGh(runner = defaultRunner) {
   async function searchPage(q, page, extra = []) {
     return parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', `q=${q}`, '-f', `per_page=${PER_PAGE}`, '-f', `page=${page}`, ...extra]));
   }
+  // ⚠️ A wide query (union of favorites) can time out INSIDE GitHub: the
+  // response is then a PARTIAL item list with `incomplete_results: true` and
+  // no HTTP error (measured: 6 items for a total_count of 26 — and total_count
+  // itself fluctuates, so a truncated response can look self-consistent). Two
+  // signals for collectPRs (§10): items < total_count → throws `err.incomplete`
+  // with the partial items attached; otherwise the array carries a
+  // non-enumerable `incomplete` flag (the response is not authoritative —
+  // absence from it proves nothing).
   async function searchIssues(q) {
     const all = [];
+    let total = 0;
+    let incomplete = false;
     for (let page = 1; page <= 10; page++) {
-      const items = (await searchPage(q, page))?.items ?? [];
+      const out = await searchPage(q, page);
+      total = out?.total_count ?? 0;
+      incomplete ||= !!out?.incomplete_results;
+      const items = out?.items ?? [];
       all.push(...items);
       if (items.length < PER_PAGE) break;
     }
+    if (incomplete && all.length < total) {
+      const err = new Error(`incomplete search results (${all.length}/${total})`);
+      err.incomplete = true;
+      err.items = all;
+      throw err;
+    }
+    if (incomplete) Object.defineProperty(all, 'incomplete', { value: true });
     return all;
   }
 

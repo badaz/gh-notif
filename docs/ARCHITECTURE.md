@@ -367,6 +367,31 @@ sequenceDiagram
       a hidden PR turned draft counted as absent. It now receives **`entries`** (everything seen
       this poll): the question is « was it seen? », not « is it displayable? ».
 
+    - **GitHub truncates a slow search silently** (real: « PRs disappear »). A wide query
+      (the union of favorites) can time out *inside* GitHub: the response is a **partial item
+      list** with `incomplete_results: true` and no HTTP error — measured on the same query
+      three times in a row: 26/26, **6/26**, 25/26 items. Consumed as is, the missing PRs (and
+      pending reviews) vanished from the dashboard for a poll. ⚠️ Neither signal is reliable
+      on its own: the flag is true even when every item is there, and **`total_count` itself
+      fluctuates** under timeout (34 → 32 → 23 within minutes), so a truncated response can
+      look self-consistent (8/8). Hence the rule: **absence from a flagged search proves
+      nothing — only GraphQL removes a PR.** `searchIssues` throws `err.incomplete` (partial
+      items attached) when `items < total_count`, and otherwise tags the array with a
+      non-enumerable `incomplete` flag; either way the response is *not authoritative*.
+      `collectPRs` then merges it with the last known list of that search (`searchMemo`,
+      object owned by the poll loop in serve.js, one entry per search keyed by scope
+      qualifier — a scope change never reuses a stale list): the remembered PRs it lacks are
+      seeded **without a trigger** into the GraphQL batch (already paid: a few more aliases),
+      and `memoAlive` keeps them only while GraphQL shows them open — a remembered review
+      request also dies once **I** appear in `latestOpinionatedReviews` (GitHub drops the
+      request on review; a comment-only review is not seen — accepted). Survivors + the
+      search's own entries become the new memo; an **unflagged** search is authoritative and
+      simply replaces it. A failed GraphQL chunk (`d` null) is no evidence: kept. Journal line
+      `🔍 … search truncated/flagged … keeping N remembered PR(s)`; without any memo yet the
+      partial list is shown (something beats nothing). Any other error still propagates
+      (rate-limit → backoff). ⚠️ No immediate retry: a handful of searches within seconds
+      trips GitHub's **secondary** rate limit (403), measured twice while diagnosing.
+
     Remaining causes of a transient absence, now harmless: search eventual consistency, rate-limit,
     a degraded GraphQL chunk, a favorite removed then re-added. ⚠️ Any future change that can
     shrink `entries` is safe **as long as it does not delete on absence** — keep that invariant.

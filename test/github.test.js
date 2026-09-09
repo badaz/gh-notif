@@ -408,3 +408,24 @@ test('convertToDraft: a failing gh pr ready --undo throws (nothing else is attem
   await assert.rejects(() => makeGh(runner).convertToDraft('o/r', 42));
   assert.equal(runner.calls.length, 1);
 });
+
+// Real bug: GitHub's search times out internally on a wide multi-org query and
+// answers a PARTIAL item list with `incomplete_results: true` (measured: 6 items
+// of a total_count of 26) — no HTTP error. Consumed as is, the missing PRs
+// vanished from the dashboard for a poll. The flag alone is unreliable (true
+// even when every item is there), so truncation = flag AND items < total_count.
+test('search: incomplete_results with fewer items than total_count throws err.incomplete (partial items attached)', async () => {
+  const runner = fakeRunner([['search/issues', JSON.stringify({ total_count: 26, incomplete_results: true, items: [{ number: 1 }, { number: 2 }] })]]);
+  await assert.rejects(makeGh(runner).searchAuthored(), (err) => {
+    assert.equal(err.incomplete, true);
+    assert.match(err.message, /2\/26/);
+    assert.deepEqual(err.items.map((i) => i.number), [1, 2]);
+    return true;
+  });
+});
+
+test('search: incomplete_results with every item present is not a truncation', async () => {
+  const runner = fakeRunner([['search/issues', JSON.stringify({ total_count: 2, incomplete_results: true, items: [{ number: 1 }, { number: 2 }] })]]);
+  const out = await makeGh(runner).searchAuthored();
+  assert.equal(out.length, 2);
+});

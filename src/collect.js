@@ -183,25 +183,70 @@ export async function collectNotifications(gh, me, { all = false, scope = null, 
   return items;
 }
 
+const pendingEntry = (it) => ({
+  repo: it.repository_url.replace('https://api.github.com/repos/', ''),
+  number: it.number,
+  title: it.title,
+  url: it.html_url,
+  updatedAt: it.updated_at,
+});
+
+const authoredEntry = (it) => ({
+  repo: it.repository_url.replace('https://api.github.com/repos/', ''),
+  number: it.number,
+  title: it.title,
+  url: it.html_url,
+});
+
 export async function collectPending(gh, scope = null) {
-  const items = await gh.searchReviewRequested(scopesQualifier(scope));
-  return items.map((it) => ({
-    repo: it.repository_url.replace('https://api.github.com/repos/', ''),
-    number: it.number,
-    title: it.title,
-    url: it.html_url,
-    updatedAt: it.updated_at,
-  }));
+  return (await gh.searchReviewRequested(scopesQualifier(scope))).map(pendingEntry);
 }
 
 export async function collectAuthored(gh, scope = null) {
-  const items = await gh.searchAuthored(scopesQualifier(scope));
-  return items.map((it) => ({
-    repo: it.repository_url.replace('https://api.github.com/repos/', ''),
-    number: it.number,
-    title: it.title,
-    url: it.html_url,
-  }));
+  return (await gh.searchAuthored(scopesQualifier(scope))).map(authoredEntry);
+}
+
+// One dashboard search → `{ entries, authoritative }`. A response GitHub
+// flagged `incomplete_results` (or truncated outright: `err.incomplete`, the
+// partial items attached — cf. github.js) is NOT authoritative: absence from
+// it proves nothing. Any other error (rate-limit…) propagates.
+async function searchEntries(run, toEntry) {
+  try {
+    const items = await run();
+    return { entries: items.map(toEntry), authoritative: !items.incomplete };
+  } catch (err) {
+    if (!err.incomplete) throw err;
+    return { entries: (err.items ?? []).map(toEntry), authoritative: false, truncated: err.message };
+  }
+}
+
+// Search memo (§10, object owned by the poll loop: `memo[key] = { qualifier,
+// items }`). A non-authoritative response is MERGED with the last known list
+// of the same scope qualifier; the GraphQL details then decide who is really
+// gone (`memoAlive`). Returns the remembered entries the response lacks.
+function memoExtras(memo, key, qualifier, res, warn) {
+  const last = memo?.[key];
+  if (res.authoritative) return [];
+  if (!last || last.qualifier !== qualifier) {
+    if (res.truncated) warn(`${key} search truncated by GitHub (${res.truncated}) · nothing remembered yet, showing the partial list`);
+    return [];
+  }
+  const known = new Set(res.entries.map((e) => `${e.repo}#${e.number}`));
+  const extras = last.items.filter((e) => !known.has(`${e.repo}#${e.number}`));
+  if (extras.length) warn(`${key} search ${res.truncated ? `truncated by GitHub (${res.truncated})` : `flagged incomplete by GitHub (${res.entries.length} items)`} · keeping ${extras.length} remembered PR(s) until GraphQL says otherwise`);
+  return extras;
+}
+
+const reviewedByMe = (d, me) => (d?.reviews ?? []).some((r) => r.author?.login === me);
+
+// A remembered PR is dead once GraphQL shows it merged/closed — and, for a
+// review request, once I reviewed it (GitHub drops the request). A failed
+// chunk (`d` null) is no evidence: kept.
+function memoAlive(key, d, me) {
+  if (!d) return true;
+  const s = prState(d);
+  if (s === 'merged' || s === 'closed') return false;
+  return key === 'pending' ? !reviewedByMe(d, me) : true;
 }
 
 // Runs fn on each item with at most `limit` concurrent executions
@@ -377,13 +422,22 @@ export async function collectSearch(gh, raw, { max = 200, ignoredChecks = {} } =
 // Groups notifications + pending reviews by PR, aggregates the triggers,
 // fetches the details of each PR (author / date / diff / CI) in parallel,
 // then splits according to whether the PR is mine or someone else's.
-export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null, ignoredChecks = {}, watchAll = null } = {}) {
+export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null, ignoredChecks = {}, watchAll = null, searchMemo = null, warn = () => {} } = {}) {
   const debug = []; // compact verdict per thread (always produced: zero cost)
-  const [items, pending, authored] = await Promise.all([
+  const qualifier = scopesQualifier(scope);
+  const [items, pendingRes, authoredRes] = await Promise.all([
     collectNotifications(gh, me, { all, scope, cache, debug, watchAll }),
-    collectPending(gh, scope),
-    collectAuthored(gh, scope),
+    searchEntries(() => gh.searchReviewRequested(qualifier), pendingEntry),
+    searchEntries(() => gh.searchAuthored(qualifier), authoredEntry),
   ]);
+  const pending = pendingRes.entries;
+  const authored = authoredRes.entries;
+  // Remembered PRs a non-authoritative search lacks (§10): seeded below
+  // WITHOUT a trigger, the GraphQL details decide whether they are still alive.
+  const extras = {
+    pending: memoExtras(searchMemo, 'pending', qualifier, pendingRes, warn),
+    authored: memoExtras(searchMemo, 'authored', qualifier, authoredRes, warn),
+  };
 
   const byKey = new Map();
   const ensure = (repo, number, title) => {
@@ -416,15 +470,49 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   }
   for (const p of pending) ensure(p.repo, p.number, p.title).triggers.add('review');
   for (const a of authored) ensure(a.repo, a.number, a.title); // dashboard: no trigger
+  const memoOnly = new Set(); // remembered PRs nothing else surfaced this poll
+  const remembered = { pending: new Map(), authored: new Map() };
+  for (const key of ['pending', 'authored']) {
+    for (const e of extras[key]) {
+      const k = `${e.repo}#${e.number}`;
+      if (!byKey.has(k)) memoOnly.add(k);
+      ensure(e.repo, e.number, e.title);
+      remembered[key].set(k, e);
+    }
+  }
 
-  const entries = [...byKey.values()];
-  const details = await gh.getPullDetailsBatch(entries.map((e) => ({ repo: e.repo, number: e.number })));
+  const candidates = [...byKey.values()];
+  const details = await gh.getPullDetailsBatch(candidates.map((e) => ({ repo: e.repo, number: e.number })));
+
+  // Verdict on the remembered PRs (§10): alive → kept (a review request
+  // regains its trigger) and remembered again; dead → dropped from this poll
+  // unless something else surfaced the PR. The memo is then rewritten:
+  // the search's own entries + the survivors (an authoritative search has no
+  // survivors → the memo IS the search).
+  const alive = { pending: [], authored: [] };
+  const seen = [];
+  candidates.forEach((e, i) => {
+    const k = `${e.repo}#${e.number}`;
+    let keep = !memoOnly.has(k);
+    for (const key of ['pending', 'authored']) {
+      const r = remembered[key].get(k);
+      if (!r || !memoAlive(key, details[i], me)) continue;
+      alive[key].push(r);
+      keep = true;
+      if (key === 'pending') e.triggers.add('review');
+    }
+    if (keep) seen.push([e, details[i]]);
+  });
+  if (searchMemo) {
+    searchMemo.pending = { qualifier, items: [...pending, ...alive.pending] };
+    searchMemo.authored = { qualifier, items: [...authored, ...alive.authored] };
+  }
+  const entries = seen.map(([e]) => e);
 
   const mineAll = [];   // my PRs (drafts kept), before hide filtering
   const othersAll = []; // others' PRs (excluding drafts), before hide filtering
   const approvalEvents = []; // one entry per approval on MY open PRs
-  entries.forEach((e, i) => {
-    const d = details[i];
+  seen.forEach(([e, d]) => {
     const approvers = approvalsOf(d?.reviews);
     const row = buildRow(e, d, ignoredFor(ignoredChecks, e.repo));
     if (d && d.author?.login === me) {
