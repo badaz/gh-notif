@@ -7,6 +7,7 @@ import {
   favoriteScopes, activeFavoriteOf,
 } from './src/favorites.js';
 import { serve } from './src/serve.js';
+import { extensionDir, isLocalInstall, commitsBehind } from './src/update.js';
 
 const POLL_SECONDS = 60;
 
@@ -208,7 +209,15 @@ async function main(argv) {
     const me = await gh.getCurrentUser();
     // serve() re-reads the favorites from prefs itself: we only pass it the
     // eventual ad-hoc scope (Array ⇒ favorites mode, which it recomputes).
-    serve({ gh, me, scope: Array.isArray(collectScope) ? null : collectScope, all: flags.all, port: flags.port ?? 7777, intervalSeconds, open: !flags.noOpen });
+    // Update hint (§32): only for a real `gh extension install <repo>` clone (a
+    // dev symlink has nothing to upgrade). GH_NOTIF_FAKE_UPDATE=N previews the
+    // banner as if N commits behind, without any git call.
+    const extDir = extensionDir();
+    const fake = Number(process.env.GH_NOTIF_FAKE_UPDATE);
+    const checkUpdate = fake > 0 ? async () => fake
+      : isLocalInstall(extDir) ? null
+        : () => commitsBehind(extDir);
+    serve({ gh, me, scope: Array.isArray(collectScope) ? null : collectScope, all: flags.all, port: flags.port ?? 7777, intervalSeconds, open: !flags.noOpen, checkUpdate });
   } catch (err) {
     process.stderr.write(`gh notif: ${err.message}\n`);
     process.exit(1);

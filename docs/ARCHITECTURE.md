@@ -39,6 +39,7 @@ error).
 | `src/serve.js` | Local HTTP server (`node:http`) + poll loop: `handleRequest` (pure) + `serve` (I/O, incl. the on-demand search cache §29). | `handleRequest` yes; `serve` no (I/O) |
 | `src/ratelimit.js` | Rate-limit detection (`isRateLimitError`) + backoff (`nextBackoffSeconds`). Pure. | yes |
 | `src/stale.js` | Stale stacks (§31): `isStaleStack(number, signal)` — a conflicting PR that drags a rewritten parent's commits. Pure. | yes |
+| `src/update.js` | Update hint (§32): `commitsBehind(dir, runner)` (git fetch + count, injectable runner), `isLocalInstall`, `extensionDir`, `UPGRADE_COMMANDS`. Nothing is installed. | yes via runner stub |
 | `src/sort.js` | Sorting of the web tables (« others » AND « Your PRs », each with its own key set): `normalizeSort`, `toggleSort` (click cycle), `sortRows` (sorted copy, missing at the end). Pure. | yes |
 
 Each module has a clear responsibility; the hard logic lives in **pure functions** tested on
@@ -1000,6 +1001,25 @@ sequenceDiagram
     until the rebase — it reappears by itself once the author rebases, the flag being
     recomputed every poll); one of mine stays, its ⚠️ tooltip saying « Stale stack …
     rebase » instead of « Merge conflicts ». Search page (§29): not computed (`false`).
+
+32. **Update hint (`update.js`): tell, never install.** The extension is a git clone made by
+    `gh extension install nikophil/gh-notif`; `gh` never upgrades it by itself. `serve` runs
+    `checkUpdate()` at startup then **hourly** (`UPDATE_CHECK_MS`, unref'd timer) and stores
+    the result in `snapshot.updateBehind`; `fragmentBody` prepends `renderUpdateBanner` (the
+    two commands with copy buttons) **in every state**, error banner included. Decisions:
+    - **zero GitHub API call**: `git -C <ext> fetch -q` + `rev-list --count HEAD..@{u}` (public
+      repo, no quota, no rate-limit interaction — §11). Any git failure (offline, no upstream)
+      reads as **0**: a hint must never turn into an error.
+    - **no auto-upgrade, no auto-restart**: a `main` pushed at 18h would land on every
+      colleague within the hour; the user runs the two commands when THEY want. A
+      `stable` branch / `npm test` gate was considered and shelved for the same reason:
+      simpler to keep the choice human.
+    - **dev install skipped**: `gh extension install .` is a **symlink** under
+      `~/.local/share/gh/extensions` → `isLocalInstall` (lstat on `dirname(process.argv[1])`,
+      the path as `gh` invoked it, NOT `import.meta.url` which is already resolved) →
+      `checkUpdate = null`, no timer at all. `gh` itself refuses to upgrade such an install.
+    - **preview**: `GH_NOTIF_FAKE_UPDATE=N gh notif --no-open --port 7791` shows the banner as
+      if N commits behind, without any git call (the entrypoint swaps `checkUpdate`).
 
 ## Test conventions
 

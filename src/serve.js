@@ -21,11 +21,13 @@ import { normalizeSort, toggleSort, sortRows, groupStacks, stackChildKeys, SORT_
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
-import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderFavorites, renderSearchShell, renderSearchFragment, escapeHtml } from './html.js';
+import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderFavorites, renderSearchShell, renderSearchFragment, renderUpdateBanner, escapeHtml } from './html.js';
+import { UPGRADE_COMMANDS } from './update.js';
 
 const POLL_SECONDS = 60;
 const BACKOFF_CAP = 600; // ceiling of the backoff on rate-limit (10 min)
 const REFRESH_MIN_AGE_MS = 10_000; // debounce of POST /refresh (see shouldRefresh)
+const UPDATE_CHECK_MS = 3_600_000; // hourly `git fetch` of the install (§32)
 // Search page (§29): result cap per query (the most recently updated ones),
 // page size, cache TTL (sort/page never refetch) and the query of a bare /search.
 const SEARCH_MAX = 200;
@@ -68,7 +70,13 @@ function recompute(data, hidden) {
 // no data yet (1st poll in progress) → spinner; otherwise → the tables.
 // ⚠️ The snapshot contains the data of the UNION of favorites; the active
 // favorite filter is applied HERE, at render time — never at collection (cf. §14).
-function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, cols = null } = {}) {
+// `snapshot.updateBehind` (§32, commits behind upstream, 0/absent = up to date)
+// prepends the update hint in every state — it must survive an error banner too.
+function fragmentBody(snapshot, opts = {}) {
+  return renderUpdateBanner(snapshot.updateBehind, UPGRADE_COMMANDS) + fragmentTables(snapshot, opts);
+}
+
+function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, cols = null } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
@@ -191,11 +199,20 @@ function openBrowser(url) {
 // Two notions not to be confused (cf. ARCHITECTURE.md §14):
 //  - `scope` (ad-hoc mode) or the union of favorites = what we COLLECT;
 //  - `activeFav` = a simple DISPLAY filter, changed without any request.
-export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS, open = true, notifier = sendNotification } = {}) {
+// `checkUpdate` (§32, optional): async () => number of commits the install is
+// behind; run at startup then hourly, its result only feeds the hint banner.
+// null (dev install) → no check at all.
+export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS, open = true, notifier = sendNotification, checkUpdate = null } = {}) {
   // `scope` non-null ⇒ ad-hoc mode: an entered scope (--org/--repo or web field)
   // takes precedence over the favorites, which become purely decorative (greyed chips).
   let scope = initialScope;
-  const snapshot = { data: { mine: [], others: [] }, updatedAt: null, error: null };
+  const snapshot = { data: { mine: [], others: [] }, updatedAt: null, error: null, updateBehind: 0 };
+
+  if (checkUpdate) {
+    const tick = async () => { snapshot.updateBehind = await checkUpdate(); };
+    tick();
+    setInterval(tick, UPDATE_CHECK_MS).unref();
+  }
 
   // Inspection cache reused between polls (unchanged thread = 0 request).
   const inspectCache = new Map();

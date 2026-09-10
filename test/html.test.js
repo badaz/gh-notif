@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell } from '../src/html.js';
+import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -1311,4 +1311,19 @@ test('renderSearchShell: query pre-filled and escaped, theme applied; the dashbo
   assert.match(out, /<span id="busy" class="spinner" hidden/, 'header spinner for the later fetches');
   assert.match(renderShell(), /href="\/search"/);
   assert.match(renderShell(), /function showPop/, 'dashboard keeps the shared table JS');
+});
+
+// ── renderUpdateBanner (§32) ─────────────────────────────────────────────────
+test('renderUpdateBanner: one chip + copy button per command, values escaped, plural handled', () => {
+  const out = renderUpdateBanner(3, ['gh extension upgrade notif', 'echo "<x>"']);
+  assert.match(out, /3 commits behind/);
+  assert.match(out, /<code>gh extension upgrade notif<\/code><button class="copy" data-copy="gh extension upgrade notif"/);
+  assert.match(out, /<code>echo &quot;&lt;x&gt;&quot;<\/code>/);
+  assert.match(out, /data-copy="echo &quot;&lt;x&gt;&quot;"/);
+  assert.match(renderUpdateBanner(1, []), /1 commit behind/);
+});
+
+test('renderUpdateBanner: 0 / undefined → empty string (no visual change)', () => {
+  assert.equal(renderUpdateBanner(0, ['x']), '');
+  assert.equal(renderUpdateBanner(undefined, ['x']), '');
 });

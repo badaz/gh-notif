@@ -720,6 +720,17 @@ export function renderLoading(scopeLabel = '') {
     + '<span class="loading-hint">(first fetch, this can take a few seconds)</span></p>';
 }
 
+// Update hint (§32): a GitHub-like flash on top of the fragment when the
+// installed extension is `behind` commits behind its upstream. Nothing is
+// installed for the user: the block just shows the commands to run, each with
+// its copy button. `behind` ≤ 0 → empty string (no visual change).
+export function renderUpdateBanner(behind, commands = []) {
+  if (!(behind > 0)) return '';
+  const cmds = commands.map((c) => `<span class="cmd"><code>${escapeHtml(c)}</code>${copyBtn(c, 'Copy command')}</span>`).join('');
+  return `<p class="update">⬆️ A new version of gh notif is available (${behind} commit${behind > 1 ? 's' : ''} behind). `
+    + `To update:${cmds}</p>`;
+}
+
 // Complete page served on `/`: HTML shell + inline CSS + JS (no external
 // asset). The JS reloads `/fragment` on startup then every `intervalMs`
 // (with a countdown), handles the « refresh » button, the « see the
@@ -1094,6 +1105,16 @@ ${FAVICON}
   .empty { color: var(--fg-muted); font-size: 1rem; padding: 2rem; text-align: center;
            border: 1px solid var(--border); border-radius: 6px; }
   .offline { color: var(--danger) !important; }
+  /* Update hint (§32): GitHub-like « flash-warn » strip above the tables, the
+     commands as chips with an always-visible copy button (no row hover here). */
+  .update { margin: 0 0 .75rem; padding: .5rem .75rem; font-size: .8125rem; border-radius: 6px;
+            color: var(--fg); background: color-mix(in srgb, var(--attention) 10%, var(--canvas));
+            border: 1px solid color-mix(in srgb, var(--attention) 40%, var(--canvas));
+            display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; }
+  .update .cmd { display: inline-flex; align-items: center; }
+  .update code { font-size: .75rem; padding: .1rem .4rem; border-radius: 4px;
+                 background: var(--canvas-subtle); border: 1px solid var(--border); }
+  .update button.copy { opacity: .7; }
   /* Easter egg 🚀 (PR freshly mergeable): full-screen confetti canvas (inert,
      removed when the physics dies down), golden shimmer on the celebrated row,
      and a springy « Ship it! » banner. Client-driven (cf. checkParty). */

@@ -305,6 +305,10 @@ gh extension install .
 # gh extension install nikophil/gh-notif
 ```
 
+When a newer version is published, the page shows a banner with the commands to run
+(`gh extension upgrade notif`, then restart). Nothing is upgraded behind your back; the
+check is an hourly `git fetch` of the extension clone, no GitHub API call.
+
 ## Usage
 
 ```bash
