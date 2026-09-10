@@ -741,14 +741,14 @@ test('GET /fragment : opts.sortMine sorts « Your PRs » (independent of opts.so
     error: null,
   });
   const res = handleRequest('/fragment', snap(), { ...OPTS, sortMine: { key: 'updated', dir: 'desc' } });
-  assert.ok(res.body.indexOf('>fresh<') < res.body.indexOf('>stale<'), 'updated desc: last-touched first');
+  assert.ok(res.body.indexOf('- fresh<') < res.body.indexOf('- stale<'), 'updated desc: last-touched first');
   assert.match(res.body, /data-sort-key="updated"[^>]*data-sort-table="mine"[^>]*>Updated ▾/);
   // By opened date: the older-updated but newer-opened one comes back first.
   const byDate = handleRequest('/fragment', snap(), { ...OPTS, sortMine: { key: 'date', dir: 'desc' } });
-  assert.ok(byDate.body.indexOf('>stale<') < byDate.body.indexOf('>fresh<'), 'date desc: newest opened first');
+  assert.ok(byDate.body.indexOf('- stale<') < byDate.body.indexOf('- fresh<'), 'date desc: newest opened first');
   // Without sortMine: collection order kept, no sortable th on mine.
   const bare = handleRequest('/fragment', snap(), { ...OPTS });
-  assert.ok(bare.body.indexOf('>stale<') < bare.body.indexOf('>fresh<'));
+  assert.ok(bare.body.indexOf('- stale<') < bare.body.indexOf('- fresh<'));
   assert.ok(!bare.body.includes('data-sort-table'), 'compat: mine not sortable without opts.sortMine');
 });
 
@@ -1146,13 +1146,13 @@ test('search page: one fetch per query, sort/page from the cache, refresh refetc
     assert.match(f1, /30 PRs/);
     assert.match(f1, /<span class="on">1<\/span>/);
     assert.match(f1, /page=2">2<\/a>/);
-    assert.match(f1, />t30</, 'updated-desc by default: #30 first');
-    assert.ok(!f1.includes('>t1<'), 'page 1 holds 25 rows: #1 (oldest) is on page 2');
+    assert.match(f1, />#30 - t30</, 'updated-desc by default: #30 first');
+    assert.ok(!f1.includes('>#1 - t1<'), 'page 1 holds 25 rows: #1 (oldest) is on page 2');
 
     const f2 = await (await fetch(`${base}/search-fragment?q=${q}&sort=diff&dir=asc&page=2`)).text();
     assert.equal(searches, 1, 'sort/page served from the cache');
     assert.match(f2, /<span class="on">2<\/span>/);
-    assert.match(f2, />t26</, 'diff asc (additions = number): page 2 = #26–#30');
+    assert.match(f2, />#26 - t26</, 'diff asc (additions = number): page 2 = #26–#30');
 
     const f3 = await (await fetch(`${base}/search/refresh?q=${q}`, { method: 'POST' })).text();
     assert.equal(searches, 1, 'refresh is debounced like POST /refresh: fetched < 10 s ago → served from the cache');

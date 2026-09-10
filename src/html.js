@@ -253,10 +253,17 @@ const COPY_ICON =
   '<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"></path>' +
   '</svg>';
 
+// GitHub « link » octicon: the PR-URL copy button, told apart from the
+// branch-name one (same cell) by its glyph.
+const LINK_ICON =
+  '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true" style="fill:currentColor;vertical-align:middle">' +
+  '<path d="m7.775 3.275 1.25-1.25a3.5 3.5 0 1 1 4.95 4.95l-2.5 2.5a3.5 3.5 0 0 1-4.95 0 .751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018 1.998 1.998 0 0 0 2.83 0l2.5-2.5a2.002 2.002 0 0 0-2.83-2.83l-1.25 1.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042Zm-4.69 9.64a1.998 1.998 0 0 0 2.83 0l1.25-1.25a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042l-1.25 1.25a3.5 3.5 0 1 1-4.95-4.95l2.5-2.5a3.5 3.5 0 0 1 4.95 0 .751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018 1.998 1.998 0 0 0-2.83 0l-2.5 2.5a1.998 1.998 0 0 0 0 2.83Z"></path>' +
+  '</svg>';
+
 // Copy-to-clipboard button: data-copy carries the raw value (escaped as an
 // attribute), the client handles the click by delegation (cf. renderShell).
-const copyBtn = (value, label) =>
-  `<button class="copy" data-copy="${escapeHtml(value)}" title="${escapeHtml(label)}">${COPY_ICON}</button>`;
+const copyBtn = (value, label, icon = COPY_ICON) =>
+  `<button class="copy" data-copy="${escapeHtml(value)}" title="${escapeHtml(label)}">${icon}</button>`;
 
 // Branch cell: the head ref name in a small GitHub-like chip (truncated, full
 // name in the tooltip) linking to the branch tree — on the HEAD repo (a fork
@@ -271,6 +278,9 @@ const branchCell = (r) => {
     + `<code class="branch" title="${escapeHtml(r.branch)}">${escapeHtml(r.branch)}</code></a>`
     + copyBtn(r.branch, 'Copy branch name');
 };
+
+// PR-URL copy button (link glyph), right after the Title link.
+const urlBtn = (r) => copyBtn(r.url, 'Copy PR URL', LINK_ICON);
 
 // GitHub label colors — the Primer formulas of GitHub's own IssueLabel.
 // Light mode: the label color as background, black/white text picked on the
@@ -353,16 +363,23 @@ const stacksBtn = (table, rows, on) =>
 // Any OTHER row whose base is not the repo's default branch (both known) gets a
 // discreet « base: … » chip — a pure render rule on the raw row, so a PR not
 // targeting the default branch is always visible as such, flat view included
-// (§20). Neither → the bare link (byte-identical compat).
+// (§20). The link text is « #number - title » (the PR number has no column
+// of its own), the tooltip carries the bare title, and a PR-URL copy button
+// follows the link.
 const titleCell = (r) => {
   const mark = r.stackDepth
-    ? `<span class="stack-indent"${r.stackBranched ? ` style="padding-left:${(r.stackDepth - 1) * 14}px"` : ''} title="Stacked on the PR above">↳</span> `
+    ? `<span class="stack-indent"${r.stackBranched ? ` style="padding-left:${(r.stackDepth - 1) * 14}px"` : ''} title="Stacked on the PR above">↳</span>`
     : '';
   const chip = !r.stackDepth && r.base && r.defaultBranch && r.base !== r.defaultBranch
-    ? ` <span class="stack-base" title="Base branch — not the repo's default branch">⤷ base: ${escapeHtml(r.base)}</span>`
+    ? `<span class="stack-base" title="Base branch — not the repo's default branch">⤷ base: ${escapeHtml(r.base)}</span>`
     : '';
-  return mark + link(r.url, r.title, r.title) + chip;
+  return titleWrap(mark + link(r.url, `#${r.number} - ${r.title}`, r.title) + urlBtn(r) + chip);
 };
+
+// The Title cell truncates (§23 pivot: overflow hidden + ellipsis on the td),
+// which would clip whatever follows a long title. A flex wrapper instead: the
+// link alone shrinks and truncates, the copy button / chips stay visible.
+const titleWrap = (inner) => `<span class="title-wrap">${inner}</span>`;
 
 const tableRow = (cells, cls = '', attrs = '') => `<tr${cls ? ` class="${cls}"` : ''}${attrs}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
 
@@ -399,10 +416,10 @@ export function partyWorthy(r, now) {
 // (same single-source guarantee as the colgroup: filtering both through the
 // same list cannot desynchronize them). 'act' = the ✕/⚙ column. Title is the
 // pivot column (absorbs the leftover width, §23) → never hideable.
-const MINE_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
-const OTHERS_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'author', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const MINE_COL_KEYS = ['repo', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const OTHERS_COL_KEYS = ['repo', 'title', 'labels', 'branch', 'author', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
 const COL_LABELS = {
-  repo: 'Repository', number: 'PR', labels: 'Labels', branch: 'Branch', author: 'Author',
+  repo: 'Repository', labels: 'Labels', branch: 'Branch', author: 'Author',
   date: 'Opened', review: 'In review', updated: 'Updated', diff: 'Diff', files: 'Files', status: 'Status',
   approvals: 'Approvals', triggers: 'Triggers', ci: 'CI', act: 'Hide button',
 };
@@ -481,7 +498,6 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     ? ` data-party="${escapeHtml(`${r.repo}#${r.number}`)}"` : '';
   const cells = [
     link(r.url, r.repo, r.repo),
-    link(r.url, `#${r.number}`),
     titleCell(r),
     labelsCell(r.labels),
     branchCell(r),
@@ -507,7 +523,6 @@ function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks
   hiddenCols = dropLabelsIfEmpty([...rows, ...(showHidden ? hiddenRows : [])], hiddenCols);
   const headers = dropHidden([
     sortableTh('Repository', 'repo', sort, 'mine'),
-    sortableTh('PR', 'number', sort, 'mine'),
     sortableTh('Title', 'title', sort, 'mine'),
     sortableTh('Labels', 'labels', sort, 'mine'),
     sortableTh('Branch', 'branch', sort, 'mine'),
@@ -540,7 +555,6 @@ function actionButton(r, hidden) {
 function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
   const cells = [
     link(r.url, r.repo, r.repo),
-    link(r.url, `#${r.number}`),
     titleCell(r),
     labelsCell(r.labels),
     branchCell(r),
@@ -568,7 +582,6 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
   const th = (html, key) => sortableTh(html, key, sort, null, hrefOf ? hrefOf(key) : null);
   const headers = dropHidden([
     th('Repository', 'repo'),
-    th('PR', 'number'),
     th('Title', 'title'),
     th('Labels', 'labels'),
     th('Branch', 'branch'),
@@ -597,8 +610,7 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
 function issueTableRow(r, now) {
   return tableRow([
     link(r.url, r.repo),
-    link(r.url, `#${r.number}`),
-    link(r.url, r.title),
+    titleWrap(link(r.url, `#${r.number} - ${r.title}`, r.title) + urlBtn(r)),
     r.actor ? `@${escapeHtml(r.actor)}` : '?',
     dateCell('Opened', r.createdAt, now),
     dateCell('Updated', r.updatedAt, now),
@@ -607,7 +619,7 @@ function issueTableRow(r, now) {
 }
 
 function issuesTable(rows, now) {
-  const headers = ['Repository', 'Issue', 'Title', 'Author', 'Opened', 'Updated', TRIGGERS_TH];
+  const headers = ['Repository', 'Title', 'Author', 'Opened', 'Updated', TRIGGERS_TH];
   return table(headers, rows.map((r) => issueTableRow(r, now)));
 }
 
@@ -924,7 +936,12 @@ ${FAVICON}
   col.sorted { background: color-mix(in srgb, var(--accent) 6%, transparent); }
   /* Title column: absorbs the remaining width and truncates on a single line
      (width:100% + max-width:0 + ellipsis trick on an auto-layout table). */
-  td:nth-child(3) { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  td:nth-child(2) { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* Inside it, only the link truncates: the URL copy button and the stack
+     marker / base chip keep their size after a long title. */
+  .title-wrap { display: flex; align-items: center; gap: .3em; min-width: 0; }
+  .title-wrap > a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .title-wrap > :not(a) { flex: none; }
   /* Resizable columns (client-side): an invisible grip on each th right edge,
      a thin accent line on hover/drag. Once a table is resized it switches to
      fixed layout (widths on the colgroup) — every cell then truncates like the
@@ -951,7 +968,7 @@ ${FAVICON}
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
   td a { color: var(--fg); }
-  td:nth-child(2) a, td:nth-child(3) a { color: var(--accent); }
+  td:nth-child(2) a { color: var(--accent); }
   .act { padding: .15rem .5rem; line-height: 1; color: var(--fg-muted); }
   .act:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
   /* Branch copy button, GitHub-like: the bare copy octicon, dimmed until the

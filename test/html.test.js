@@ -399,15 +399,26 @@ test('renderFragment: Status/Triggers headers are icon-only (label in the toolti
   assert.match(out, /<abbr title="Triggers"[^>]*>⚡<\/abbr>/);
 });
 
-test('renderFragment: no copy button on the PR number (branch only)', () => {
-  const out = renderFragment({ mine: [myRow({ branch: 'feat/x' })], others: [] }, { now: NOW });
-  assert.ok(!out.includes('data-copy="120"'));
-  assert.equal((out.match(/data-copy=/g) || []).length, 1); // the branch one
+test('renderFragment: Title cell = « #number - title », no PR column of its own', () => {
+  const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
+  assert.match(out, /<a href="https:\/\/github\.com\/symfony\/web\/pull\/120" title="fix header" target="_blank" rel="noopener">#120 - fix header<\/a>/);
+  assert.doesNotMatch(out, />#120<\/a>/);
+  assert.doesNotMatch(out, /<th[^>]*>PR<\/th>/);
+  assert.doesNotMatch(out, /data-cols-key="number"/);
 });
 
-test('renderFragment: missing branch → empty cell, no copy button at all', () => {
+test('renderFragment: PR-URL copy button (link glyph) right after the Title link, branch button in its cell', () => {
+  const out = renderFragment({ mine: [myRow({ branch: 'feat/x' })], others: [] }, { now: NOW });
+  assert.ok(!out.includes('data-copy="120"'));
+  assert.equal((out.match(/data-copy=/g) || []).length, 2);
+  assert.match(out, /#120 - fix header<\/a><button class="copy" data-copy="https:\/\/github\.com\/symfony\/web\/pull\/120" title="Copy PR URL">/);
+  assert.match(out, /feat\/x<\/code><\/a><button class="copy" data-copy="feat\/x" title="Copy branch name">/);
+});
+
+test('renderFragment: missing branch → empty branch cell, the URL button stays', () => {
   const out = renderFragment({ mine: [myRow({ branch: null })], others: [] }, { now: NOW });
-  assert.equal((out.match(/data-copy=/g) || []).length, 0);
+  assert.equal((out.match(/data-copy=/g) || []).length, 1);
+  assert.match(out, /title="Copy PR URL"/);
 });
 
 test('renderFragment: branch name escaped (anti-injection)', () => {

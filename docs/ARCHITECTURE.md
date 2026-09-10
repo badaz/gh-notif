@@ -769,7 +769,11 @@ sequenceDiagram
     14 days (age authority).
 
 23. **Resizable columns (drag on a header edge, web).** Motivation: reading full PR titles —
-    the Title column absorbs the leftover width (§CSS trick `width:100%; max-width:0`), so the
+    the Title column absorbs the leftover width (§CSS trick `width:100%; max-width:0`, on
+    `td:nth-child(2)`: there is **no PR-number column** — the Title link reads
+    « #number - title », the bare title in its tooltip, followed by a PR-URL copy button
+    (link octicon, same `.copy` mechanics as the branch one); the `number` sort key survives
+    in sort.js for persisted prefs but has no header), so the
     two levers are **shrinking the other columns** (Title absorbs what they release) and
     **dragging Title's own edge**. Grips (`.col-grip`, invisible, accent line on hover) on every
     `<th>` right edge except the ✕ column. **First drag freezes** every column **except Title**
