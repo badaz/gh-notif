@@ -591,12 +591,14 @@ test('renderShell: the switcher posts to /theme', () => {
   assert.match(renderShell({ theme: 'auto' }), /\/theme/);
 });
 
-test('renderShell: inline favicon — accent-blue GitHub mark + bell badge (SVG data-URI, theme-aware)', () => {
+test('renderShell: inline favicon — rounded square, knocked-out GitHub mark + red bell badge (SVG data-URI, theme-aware)', () => {
   const out = renderShell({ intervalMs: 10000 });
   assert.match(out, /<link rel="icon" href="data:image\/svg\+xml,/);
   assert.match(out, /prefers-color-scheme:dark/);          // light/dark adaptive
-  assert.match(out, /\.m\{fill:%230969da\}/);              // blue mark ≠ github.com's black one; `#` encoded
-  assert.match(out, /\.m\{fill:%234493f8\}/);              // dark-theme accent
+  assert.match(out, /<rect class='s' width='16' height='16' rx=/); // square ≠ github.com's bare mark
+  assert.match(out, /\.s\{fill:%231f2328\}/);              // black square on a light tab; `#` encoded
+  assert.match(out, /\.s\{fill:%23e6edf3\}/);              // white square on a dark tab
+  assert.match(out, /\.b\{fill:%23d1242f\}/);              // red bell (--danger)
   assert.match(out, /<path class='b' d='M3 5a5 5/);        // bell-fill octicon badge
   assert.ok(!/href="https?:[^"]*\.(svg|ico|png)/.test(out), 'favicon not external');
 });
