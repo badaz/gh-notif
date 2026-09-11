@@ -1316,16 +1316,16 @@ test('renderSearchShell: query pre-filled and escaped, theme applied; the dashbo
 });
 
 // ── renderUpdateBanner (§32) ─────────────────────────────────────────────────
-test('renderUpdateBanner: one chip + copy button per command, values escaped, plural handled', () => {
-  const out = renderUpdateBanner(3, ['gh extension upgrade notif', 'echo "<x>"']);
-  assert.match(out, /3 commits behind/);
+test('renderUpdateBanner: release tag in the text, one chip + copy button per command, values escaped', () => {
+  const out = renderUpdateBanner('v1.2.0', ['gh extension upgrade notif', 'echo "<x>"']);
+  assert.match(out, /^<p class="update">⬆️ gh notif v1\.2\.0 is out\. To update:/);
   assert.match(out, /<code>gh extension upgrade notif<\/code><button class="copy" data-copy="gh extension upgrade notif"/);
   assert.match(out, /<code>echo &quot;&lt;x&gt;&quot;<\/code>/);
   assert.match(out, /data-copy="echo &quot;&lt;x&gt;&quot;"/);
-  assert.match(renderUpdateBanner(1, []), /1 commit behind/);
+  assert.match(renderUpdateBanner('<b>', []), /gh notif &lt;b&gt; is out/);
 });
 
-test('renderUpdateBanner: 0 / undefined → empty string (no visual change)', () => {
-  assert.equal(renderUpdateBanner(0, ['x']), '');
+test('renderUpdateBanner: null / undefined → empty string (no visual change)', () => {
+  assert.equal(renderUpdateBanner(null, ['x']), '');
   assert.equal(renderUpdateBanner(undefined, ['x']), '');
 });

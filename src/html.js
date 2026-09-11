@@ -724,15 +724,14 @@ export function renderLoading(scopeLabel = '') {
     + '<span class="loading-hint">(first fetch, this can take a few seconds)</span></p>';
 }
 
-// Update hint (§32): a GitHub-like flash on top of the fragment when the
-// installed extension is `behind` commits behind its upstream. Nothing is
-// installed for the user: the block just shows the commands to run, each with
-// its copy button. `behind` ≤ 0 → empty string (no visual change).
-export function renderUpdateBanner(behind, commands = []) {
-  if (!(behind > 0)) return '';
+// Update hint (§32): a GitHub-like flash on top of the fragment when a release
+// `tag` newer than the installed extension is published. Nothing is installed
+// for the user: the block just shows the commands to run, each with its copy
+// button. Falsy `tag` → empty string (no visual change).
+export function renderUpdateBanner(tag, commands = []) {
+  if (!tag) return '';
   const cmds = commands.map((c) => `<span class="cmd"><code>${escapeHtml(c)}</code>${copyBtn(c, 'Copy command')}</span>`).join('');
-  return `<p class="update">⬆️ A new version of gh notif is available (${behind} commit${behind > 1 ? 's' : ''} behind). `
-    + `To update:${cmds}</p>`;
+  return `<p class="update">⬆️ gh notif ${escapeHtml(tag)} is out. To update:${cmds}</p>`;
 }
 
 // Complete page served on `/`: HTML shell + inline CSS + JS (no external

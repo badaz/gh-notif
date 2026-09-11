@@ -26,3 +26,17 @@ error.
   in the user's browser).
 - The web page reuses the presentation helpers of `render.js` (`ciIcon`, `stateIcon`,
   `relativeDate`, `checksByRepo`); the HTML itself lives in `html.js` / `serve.js`.
+
+## Releases
+
+Versions ship as **GitHub releases**: the update banner (§32) only fires on a new release,
+so a push to `main` that is not released reaches nobody.
+
+- **After every push to `main`, suggest cutting a release** (suggest, never create it
+  unasked). Semver: patch for a fix, minor for a feature.
+- Release = bump `version` in `package.json`, commit, then let `gh` write the notes from
+  the commits since the previous release:
+
+  ```bash
+  gh release create v<version> --generate-notes
+  ```

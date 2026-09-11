@@ -70,10 +70,10 @@ function recompute(data, hidden) {
 // no data yet (1st poll in progress) → spinner; otherwise → the tables.
 // ⚠️ The snapshot contains the data of the UNION of favorites; the active
 // favorite filter is applied HERE, at render time — never at collection (cf. §14).
-// `snapshot.updateBehind` (§32, commits behind upstream, 0/absent = up to date)
+// `snapshot.updateTag` (§32, tag of a newer release, null/absent = up to date)
 // prepends the update hint in every state — it must survive an error banner too.
 function fragmentBody(snapshot, opts = {}) {
-  return renderUpdateBanner(snapshot.updateBehind, UPGRADE_COMMANDS) + fragmentTables(snapshot, opts);
+  return renderUpdateBanner(snapshot.updateTag, UPGRADE_COMMANDS) + fragmentTables(snapshot, opts);
 }
 
 function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, cols = null } = {}) {
@@ -199,17 +199,17 @@ function openBrowser(url) {
 // Two notions not to be confused (cf. ARCHITECTURE.md §14):
 //  - `scope` (ad-hoc mode) or the union of favorites = what we COLLECT;
 //  - `activeFav` = a simple DISPLAY filter, changed without any request.
-// `checkUpdate` (§32, optional): async () => number of commits the install is
-// behind; run at startup then hourly, its result only feeds the hint banner.
-// null (dev install) → no check at all.
+// `checkUpdate` (§32, optional): async () => tag of a newer release than the
+// install (null = up to date); run at startup then hourly, its result only
+// feeds the hint banner. null (dev install) → no check at all.
 export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS, open = true, notifier = sendNotification, checkUpdate = null } = {}) {
   // `scope` non-null ⇒ ad-hoc mode: an entered scope (--org/--repo or web field)
   // takes precedence over the favorites, which become purely decorative (greyed chips).
   let scope = initialScope;
-  const snapshot = { data: { mine: [], others: [] }, updatedAt: null, error: null, updateBehind: 0 };
+  const snapshot = { data: { mine: [], others: [] }, updatedAt: null, error: null, updateTag: null };
 
   if (checkUpdate) {
-    const tick = async () => { snapshot.updateBehind = await checkUpdate(); };
+    const tick = async () => { snapshot.updateTag = await checkUpdate(); };
     tick();
     setInterval(tick, UPDATE_CHECK_MS).unref();
   }

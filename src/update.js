@@ -28,16 +28,22 @@ export function isLocalInstall(dir) {
 
 const defaultRunner = async (args) => (await pexec('git', args)).stdout;
 
-// Number of commits the install is behind its upstream (0 = up to date).
+// Tag of the latest GitHub release the install does not contain yet (null =
+// up to date, or no release at all). Releases are tags on `main`: the highest
+// tag by version whose commits are not all reachable from HEAD is a newer
+// release — a plain push to `main` without a release never triggers the hint.
 // `runner(args)` runs `git` with `args` and resolves with its stdout — injectable
-// for the tests. Any git failure (offline, no upstream…) reads as 0: an update
+// for the tests. Any git failure (offline, no remote…) reads as null: an update
 // hint must never become an error banner.
-export async function commitsBehind(dir, runner = defaultRunner) {
+export async function newerRelease(dir, runner = defaultRunner) {
   try {
-    await runner(['-C', dir, 'fetch', '-q']);
-    return Number.parseInt(await runner(['-C', dir, 'rev-list', '--count', 'HEAD..@{u}']), 10) || 0;
+    await runner(['-C', dir, 'fetch', '-q', '--tags']);
+    const tag = (await runner(['-C', dir, 'tag', '--sort=-v:refname'])).split('\n')[0].trim();
+    if (!tag) return null;
+    const behind = Number.parseInt(await runner(['-C', dir, 'rev-list', '--count', `HEAD..${tag}`]), 10) || 0;
+    return behind > 0 ? tag : null;
   } catch {
-    return 0;
+    return null;
   }
 }
 

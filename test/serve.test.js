@@ -1243,19 +1243,19 @@ test('POST /ready and /draft call gh, update the row at once, 400 on unknown PR 
 });
 
 // ── Update hint (§32) ───────────────────────────────────────────────────────
-test('GET /fragment: snapshot.updateBehind > 0 → update banner on top of the tables, with the commands', () => {
-  const res = handleRequest('/fragment', { ...okSnapshot(), updateBehind: 2 }, OPTS);
-  assert.match(res.body, /^<p class="update">⬆️ A new version of gh notif is available \(2 commits behind\)/);
+test('GET /fragment: snapshot.updateTag set → update banner on top of the tables, with the commands', () => {
+  const res = handleRequest('/fragment', { ...okSnapshot(), updateTag: 'v1.2.0' }, OPTS);
+  assert.match(res.body, /^<p class="update">⬆️ gh notif v1\.2\.0 is out\./);
   assert.match(res.body, /gh extension upgrade notif/);
   assert.match(res.body, /systemctl --user restart gh-notif/);
   assert.match(res.body, /Your open PRs/);
 });
 
 test('GET /fragment: the update banner survives an error state, and is absent when up to date', () => {
-  const err = handleRequest('/fragment', { data: null, updatedAt: null, error: 'boom', updateBehind: 1 }, OPTS);
+  const err = handleRequest('/fragment', { data: null, updatedAt: null, error: 'boom', updateTag: 'v1.2.0' }, OPTS);
   assert.match(err.body, /class="update"/);
-  assert.match(err.body, /1 commit behind/);
+  assert.match(err.body, /v1\.2\.0 is out/);
   assert.match(err.body, /Error: boom/);
   assert.doesNotMatch(handleRequest('/fragment', okSnapshot(), OPTS).body, /class="update"/);
-  assert.doesNotMatch(handleRequest('/fragment', { ...okSnapshot(), updateBehind: 0 }, OPTS).body, /class="update"/);
+  assert.doesNotMatch(handleRequest('/fragment', { ...okSnapshot(), updateTag: null }, OPTS).body, /class="update"/);
 });
