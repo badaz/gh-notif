@@ -1029,6 +1029,24 @@ sequenceDiagram
     - **preview**: `GH_NOTIF_FAKE_UPDATE=v9.9.9 gh notif --no-open --port 7791` shows the banner
       as if that release were out, without any git call (the entrypoint swaps `checkUpdate`).
 
+33. **Folded stacks (client-only).** In stacks mode (§20) a stack root carries a tiny
+    `▾` button (`button.stack-fold`, `titleCell`): a click hides the block's children,
+    the chevron turns `▸` and a « +N » count appears (CSS on `tr.folded`, the count span is
+    otherwise `display:none`). Decisions:
+    - **annotations in `groupStacks`** (sort.js): the root gets `stackKids` (descendant
+      count, > 0 by construction — a root always has a child), every child `stackRoot`
+      (`repo#number` of its root). html.js turns them into `data-stack-root` / `data-stack-of`
+      on the `<tr>` (`stackAttrs`) — a plain row has neither, flat view byte-identical.
+      A base-cycle block (defensive path) has no root → no button.
+    - **no server state**: folding is a reading gesture per device, not a table setting like
+      `stacks`/`sort` — a set of root keys in `localStorage` (`ghn-folded-v1`, capped 200),
+      `applyFolds()` re-applied after each `#content` injection (innerHTML wipes the classes,
+      same mechanics as `markLastClicked`), zero round-trip.
+    - **a folded stack STAYS folded when a new child lands in it** (the key is the root, not
+      the children count) — chosen on purpose: the user folds a stack to stop looking at it.
+      §28 still turns stacks mode on for a never-seen child; the root's « +N » just grows.
+    - whole block only: a branched stack folds under its root, no per-node folding.
+
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no

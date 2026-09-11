@@ -381,9 +381,13 @@ const stacksBtn = (table, rows, on) =>
 // of its own), the tooltip carries the bare title, and a PR-URL copy button
 // follows the link.
 const titleCell = (r) => {
+  // Fold button on a stack ROOT (§33): the client toggles the block's children.
+  // The « +N » count is only shown while folded (CSS).
   const mark = r.stackDepth
     ? `<span class="stack-indent"${r.stackBranched ? ` style="padding-left:${(r.stackDepth - 1) * 14}px"` : ''} title="Stacked on the PR above">↳</span>`
-    : '';
+    : r.stackKids
+      ? `<button class="stack-fold" title="Fold / unfold this stack"><span class="stack-fold-n">+${r.stackKids}</span></button>`
+      : '';
   const chip = !r.stackDepth && r.base && r.defaultBranch && r.base !== r.defaultBranch
     ? `<span class="stack-base" title="Base branch — not the repo's default branch">⤷ base: ${escapeHtml(r.base)}</span>`
     : '';
@@ -505,6 +509,14 @@ const rowClass = (r, hidden) =>
     hidden && 'hid',
   ].filter(Boolean).join(' ');
 
+// Fold attributes (§33): a root is addressed by `data-stack-root="repo#n"`,
+// its children by `data-stack-of` = the same key — the client hides the
+// latter when the key is in its folded set (localStorage).
+const stackAttrs = (r) =>
+  r.stackKids ? ` data-stack-root="${escapeHtml(`${r.repo}#${r.number}`)}"`
+    : r.stackRoot ? ` data-stack-of="${escapeHtml(r.stackRoot)}"`
+      : '';
+
 function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
   // Hidden rows are never tagged: no party for a PR you chose not to see.
   // partyWorthy gates on the PR's age in business days (easter egg, not a badge).
@@ -529,7 +541,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
   return tableRow(
     dropHidden(cells, MINE_COL_KEYS, hiddenCols),
     rowClass(r, hidden),
-    party,
+    stackAttrs(r) + party,
   );
 }
 
@@ -587,6 +599,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
   return tableRow(
     dropHidden(cells, OTHERS_COL_KEYS, hiddenCols),
     rowClass(r, hidden),
+    stackAttrs(r),
   );
 }
 
@@ -1023,6 +1036,21 @@ ${FAVICON}
      and « base: … » chip of a stacked row whose parent is not in the table —
      both muted and tiny, GitHub-like discretion. */
   .stack-indent { color: var(--fg-muted); }
+  /* Fold button of a stack root (§33): a bare muted chevron, ▾ open / ▸ folded,
+     the « +N » children count only while folded. Folded children rows are
+     simply not displayed (class set by the client, re-applied at injection). */
+  /* Sized as a real hit target (~22×22px): a bare 10px glyph was too hard to
+     click — the visual stays muted, only the hover veil tells the box. */
+  button.stack-fold { display: inline-flex; align-items: center; justify-content: center;
+                      min-width: 1.6rem; height: 1.4rem; padding: 0 .3em; font-size: .8rem;
+                      color: var(--fg-muted); background: transparent; border: 0;
+                      border-radius: 4px; box-shadow: none; cursor: pointer; line-height: 1; }
+  button.stack-fold::before { content: '▾'; }
+  button.stack-fold:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  tr.folded button.stack-fold::before { content: '▸'; }
+  .stack-fold-n { display: none; margin-left: .2em; }
+  tr.folded .stack-fold-n { display: inline; }
+  tr[data-stack-of].folded { display: none; }
   /* « ⤷ stacks » toggle in the section titles: tiny GitHub-like chip, accent
      when active (same visual language as the 🙈 hidden toggle, but smaller). */
   /* Right-side group of the section bar: the stacks toggle then the gear.
@@ -1242,6 +1270,30 @@ ${TABLE_JS}
       if (tr) { tr.classList.add('clicked'); return; }
     }
   }
+  // Folded stacks (§33): client-only display state, a set of root keys
+  // (repo#number) in localStorage. Re-applied after each injection (innerHTML
+  // wipes the classes). A folded stack STAYS folded when a new child lands in
+  // it — the key is the root, the children count is irrelevant.
+  var FOLD_KEY = 'ghn-folded-v1';
+  function loadFolded() {
+    try { var v = JSON.parse(localStorage.getItem(FOLD_KEY)); return Array.isArray(v) ? v : []; }
+    catch (e) { return []; }
+  }
+  var folded = loadFolded();
+  function saveFolded() { try { localStorage.setItem(FOLD_KEY, JSON.stringify(folded.slice(-200))); } catch (e) {} }
+  function applyFolds() {
+    var rows = content.querySelectorAll('tr[data-stack-root], tr[data-stack-of]');
+    for (var i = 0; i < rows.length; i++) {
+      var key = rows[i].getAttribute('data-stack-root') || rows[i].getAttribute('data-stack-of');
+      rows[i].classList.toggle('folded', folded.indexOf(key) >= 0);
+    }
+  }
+  function toggleFold(key) {
+    var at = folded.indexOf(key);
+    if (at >= 0) folded.splice(at, 1); else folded.push(key);
+    saveFolded();
+    applyFolds();
+  }
   // ── Easter egg 🚀: party when one of MY PRs becomes mergeable ────────────
   // The server tags the mergeable rows (data-party="repo#n", cf. isMergeable);
   // the client spots the NEW keys vs a localStorage set (silent seed on first
@@ -1457,6 +1509,7 @@ ${TABLE_JS}
     closeCiPop();
     content.innerHTML = html;
     markLastClicked();
+    applyFolds();
     initResize();
     // Re-open the column menu that was open before the injection (fresh node,
     // up-to-date checkboxes) — multi-toggling stays fluid across re-renders.
@@ -1805,6 +1858,12 @@ ${TABLE_JS}
     var stk = e.target.closest('button.stacks-toggle');
     if (stk) {
       act('/stacks', 'table=' + encodeURIComponent(stk.getAttribute('data-stacks-table')));
+      return;
+    }
+    // Fold / unfold a stack under its root (§33): client-only, no round-trip.
+    var fold = e.target.closest('button.stack-fold');
+    if (fold) {
+      toggleFold(fold.closest('tr').getAttribute('data-stack-root'));
       return;
     }
     var btn = e.target.closest('.act');

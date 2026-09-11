@@ -1329,3 +1329,25 @@ test('renderUpdateBanner: null / undefined → empty string (no visual change)',
   assert.equal(renderUpdateBanner(null, ['x']), '');
   assert.equal(renderUpdateBanner(undefined, ['x']), '');
 });
+
+test('renderFragment: a stack root gets a fold button + data-stack-root, its children data-stack-of (§33)', () => {
+  const out = renderFragment({
+    mine: [],
+    others: [
+      otherRow({ number: 1, inStack: true, stackIndex: 0, stackKids: 2 }),
+      otherRow({ number: 2, inStack: true, stackIndex: 0, stackDepth: 1, stackRoot: 'symfony/api#1' }),
+      otherRow({ number: 3, inStack: true, stackIndex: 0, stackDepth: 2, stackRoot: 'symfony/api#1' }),
+      otherRow({ number: 4 }),
+    ],
+  }, { now: NOW });
+  assert.equal((out.match(/<tr class="stack stack-a" data-stack-root="symfony\/api#1">/g) || []).length, 1);
+  assert.equal((out.match(/<tr class="stack stack-a" data-stack-of="symfony\/api#1">/g) || []).length, 2);
+  assert.equal((out.match(/class="stack-fold"/g) || []).length, 1, 'one button, on the root only');
+  assert.ok(out.includes('<span class="stack-fold-n">+2</span>'));
+});
+
+test('renderFragment: no stack annotation → no fold button nor data-stack attributes (flat view, compat)', () => {
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
+  assert.ok(!out.includes('stack-fold'));
+  assert.ok(!out.includes('data-stack-'));
+});

@@ -426,3 +426,20 @@ test('stackChildKeys: keys (repo#number) of the rows whose parent is in the tabl
   assert.deepEqual(stackChildKeys([]), []);
   assert.deepEqual(stackChildKeys(undefined), []);
 });
+
+test('groupStacks: the root carries its descendant count (stackKids) and each child its root key (stackRoot) — fold affordance (§33)', () => {
+  const out = groupStacks([
+    { repo: 'o/a', number: 20, branch: 'l0', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/a', number: 22, branch: 'l2', base: 'l1', defaultBranch: 'main' },
+    { repo: 'o/a', number: 21, branch: 'l1', base: 'l0', defaultBranch: 'main' },
+    { repo: 'o/a', number: 12, branch: 'solo', base: 'main', defaultBranch: 'main' },
+  ]);
+  const byNum = Object.fromEntries(out.map((r) => [r.number, r]));
+  assert.equal(byNum[20].stackKids, 2);
+  assert.equal(byNum[20].stackRoot, undefined);
+  assert.equal(byNum[21].stackRoot, 'o/a#20');
+  assert.equal(byNum[22].stackRoot, 'o/a#20');
+  assert.equal(byNum[21].stackKids, undefined);
+  assert.equal(byNum[12].stackKids, undefined);
+  assert.equal(byNum[12].stackRoot, undefined);
+});

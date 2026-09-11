@@ -150,19 +150,26 @@ export function groupStacks(rows) {
   };
   // `inStack` flags every row of a block and `stackIndex` numbers it →
   // alternating block backgrounds (two adjacent stacks must read as two units).
-  const emit = (r, depth, block, branched) => {
+  // Folding (§33): each child carries `stackRoot` (its root's repo#number) and
+  // the root its descendant count `stackKids` — the client hides the children
+  // of a folded root by that key.
+  const emit = (r, depth, block, branched, root) => {
     if (visited.has(r)) return;
     visited.add(r);
     out.push({
       ...r, inStack: true, stackIndex: block,
-      ...(depth > 0 ? { stackDepth: depth } : {}),
+      ...(depth > 0 ? { stackDepth: depth, stackRoot: root } : {}),
       ...(depth > 0 && branched ? { stackBranched: true } : {}),
     });
-    for (const c of childrenOf.get(r) ?? []) emit(c, depth + 1, block, branched);
+    for (const c of childrenOf.get(r) ?? []) emit(c, depth + 1, block, branched, root);
   };
   for (const r of list) {
     if (!inStack.has(r)) solos.push(r);
-    else if (!parentOf.has(r)) emit(r, 0, nextBlock++, isBranched(r));
+    else if (!parentOf.has(r)) {
+      const at = out.length;
+      emit(r, 0, nextBlock++, isBranched(r), `${r.repo}#${r.number}`);
+      out[at].stackKids = out.length - at - 1;
+    }
   }
   // base cycle (defensive): a component without a root, emit it as its own block
   for (const r of list) if (inStack.has(r) && !visited.has(r)) emit(r, 0, nextBlock++, false);
