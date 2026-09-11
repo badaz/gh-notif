@@ -54,8 +54,8 @@ function sortableTh(html, key, sort, table = null, href = null) {
   };
 }
 
-// Favicon: the GitHub mark in accent blue with a bell (octicon `bell-fill`, 10 px)
-// as a badge in the top-right corner, embedded as an SVG data-URI (zero external
+// Favicon: the GitHub mark in accent blue with a bell (octicon `bell-fill`, ~9 px)
+// as a badge flush with the top-right corner, embedded as an SVG data-URI (zero external
 // asset, like the rest of the pages). The blue + bell is what tells this tab apart
 // from a github.com tab (GitHub's own favicon is the bare mark in black / white).
 // The bell sits on a halo in the canvas color that detaches it from the mark.
@@ -70,8 +70,8 @@ const FAVICON =
   '<style>.m{fill:%230969da}.h{fill:%23fff}.b{fill:%231f2328}' +
   '@media(prefers-color-scheme:dark){.m{fill:%234493f8}.h{fill:%230d1117}.b{fill:%23e6edf3}}</style>' +
   "<path class='m' d='M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z'/>" +
-  "<circle class='h' cx='11' cy='5' r='5.6'/>" +
-  "<g transform='translate(6 0) scale(.625)'>" +
+  "<circle class='h' cx='13.1' cy='4' r='4.9'/>" +
+  "<g transform='translate(8.9 -.2) scale(.52)'>" +
   "<path class='b' d='M3 5a5 5 0 0 1 10 0v2.947c0 .05.015.098.042.139l1.703 2.555A1.519 1.519 0 0 1 13.482 13H2.518a1.516 1.516 0 0 1-1.263-2.36l1.703-2.554A.255.255 0 0 0 3 7.947ZM8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16Z'/>" +
   '</g></svg>">';
 
