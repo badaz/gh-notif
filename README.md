@@ -333,8 +333,10 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.gh-notif.dashboard.p
 
 `bootstrap` loads the agent **once**. Run it a second time on an agent that is already loaded and
 launchd answers `Bootstrap failed: 5: Input/output error`, which means « this label is already
-there », not « it is broken » — `launchctl list | grep gh-notif` then shows the PID. The legacy
-`launchctl load` is tolerant of this, `bootstrap` is not.
+there », not « it is broken ». The legacy `launchctl load` is a shim over the same call and fails
+the same way (`Load failed: 5`). Check the state with `launchctl list | grep gh-notif` instead of
+re-running the load: a PID in the first column means it is running, a dash with a number in the
+second means it is stopped and that number is the last exit status.
 
 Three points that make the agent fail if you get them wrong:
 
