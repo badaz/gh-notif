@@ -105,7 +105,7 @@ test('renderFragment: my draft PR → the 📝 is a button proposing « ready fo
 test('renderFragment: my open PR → the 🟢 is a button proposing « convert to draft » (warns about reviewers)', () => {
   const out = renderFragment({ mine: [myRow({ state: 'open' })], others: [] }, { now: NOW });
   assert.match(out, /<button class="state-btn" data-key="symfony\/web#120" data-to="draft" title="Open — click to convert to draft">🟢<\/button>/);
-  assert.match(out, /<div class="state-pop" hidden>[\s\S]*Convert #120 back to draft\? Its requested reviewers will be removed\.[\s\S]*<button class="state-ok" data-key="symfony\/web#120" data-to="draft">Convert to draft<\/button>/);
+  assert.match(out, /<div class="state-pop" hidden>[\s\S]*Convert #120 back to draft\? Its requested reviewers will be removed, and re-requested once it is ready again\.[\s\S]*<button class="state-ok" data-key="symfony\/web#120" data-to="draft">Convert to draft<\/button>/);
 });
 
 test('renderFragment: no state button on merged/closed, on others\' PRs, nor on hidden rows', () => {

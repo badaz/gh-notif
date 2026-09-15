@@ -130,6 +130,17 @@ const STALE_FRAGMENT = `fragment stale on PullRequest {
   } } }
 }`;
 
+// Reviewers removed at a draft conversion (§30, `markReady`): the timeline
+// keeps one ReviewRequestRemovedEvent per reviewer (user or team) next to the
+// ConvertToDraftEvent that triggered them.
+const DRAFT_REMOVALS_FRAGMENT = `fragment removals on PullRequest {
+  timelineItems(itemTypes: [CONVERT_TO_DRAFT_EVENT, REVIEW_REQUEST_REMOVED_EVENT], last: 50) { nodes {
+    __typename
+    ... on ConvertToDraftEvent { createdAt }
+    ... on ReviewRequestRemovedEvent { createdAt requestedReviewer { ... on User { login } ... on Team { slug } } }
+  } }
+}`;
+
 function normalizeStale(pr) {
   if (!pr) return null;
   return {
@@ -316,10 +327,25 @@ export function makeGh(runner = defaultRunner) {
       }
     },
     // Dashboard toggle on my PRs (ARCHITECTURE §30): draft → « ready for
-    // review ». Text output only (nothing to parse); a failure throws with
-    // gh's message (surfaced by the server as a 400).
+    // review », then re-requests the reviewers `convertToDraft` removed. No
+    // local state: they are read from the timeline (the ReviewRequestRemovedEvent
+    // items after the last ConvertToDraftEvent), so a server restart between
+    // the two clicks loses nothing. A failure throws with gh's message
+    // (surfaced by the server as a 400).
     async markReady(repoFullName, number) {
       await runner(['pr', 'ready', String(number), '--repo', repoFullName]);
+      const [items] = await graphqlPullChunk([{ repo: repoFullName, number }], {
+        fragment: DRAFT_REMOVALS_FRAGMENT, spread: 'removals', normalize: (pr) => pr?.timelineItems?.nodes ?? [],
+      });
+      const lastDraft = items.findLast((i) => i.__typename === 'ConvertToDraftEvent');
+      const removed = lastDraft ? items.filter((i) => i.__typename === 'ReviewRequestRemovedEvent' && i.createdAt >= lastDraft.createdAt) : [];
+      const users = new Set(removed.map((i) => i.requestedReviewer?.login).filter(Boolean));
+      const teams = new Set(removed.map((i) => i.requestedReviewer?.slug).filter(Boolean));
+      const fields = [...[...users].map((u) => `reviewers[]=${u}`), ...[...teams].map((t) => `team_reviewers[]=${t}`)];
+      if (fields.length) {
+        const path = `repos/${repoFullName}/pulls/${number}/requested_reviewers`;
+        await runner(['api', '-X', 'POST', path, ...fields.flatMap((f) => ['-f', f])]);
+      }
     },
     // « ready » → draft. ⚠️ GitHub keeps the requested reviewers on a draft
     // (docs: nobody is unsubscribed by the conversion), so they are removed

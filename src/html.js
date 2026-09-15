@@ -161,7 +161,7 @@ const CONFLICT_ICON = '⚠️';
 // then the client POSTs /ready or /draft. Merged/closed are final: plain icon.
 const STATE_TOGGLE = {
   draft: { to: 'ready', title: 'Draft — click to mark as ready for review', ask: (n) => `Mark #${n} as ready for review?`, ok: 'Ready for review' },
-  open: { to: 'draft', title: 'Open — click to convert to draft', ask: (n) => `Convert #${n} back to draft? Its requested reviewers will be removed.`, ok: 'Convert to draft' },
+  open: { to: 'draft', title: 'Open — click to convert to draft', ask: (n) => `Convert #${n} back to draft? Its requested reviewers will be removed, and re-requested once it is ready again.`, ok: 'Convert to draft' },
 };
 // `conflicting` = true → « Merge conflicts »; 'stale' → the conflict is a
 // stale stack (§31: trailing commits of a rewritten parent — rebase, not review).

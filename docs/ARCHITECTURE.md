@@ -964,7 +964,16 @@ sequenceDiagram
     conversion (docs: nobody is unsubscribed), and a draft with stale review requests is
     exactly the noise the user wanted gone — via `GET` then `DELETE
     /repos/o/r/pulls/N/requested_reviewers` (users AND teams, `-f 'reviewers[]=login'`; no
-    DELETE when nobody is requested). The server looks the key up in **`snapshot.data.mine`**
+    DELETE when nobody is requested). Symmetrically, `markReady` **re-requests the reviewers
+    that removal took away** — GitHub does not restore them either, and a PR back in review
+    with nobody asked was the reported bug. ⚠️ **No local state** for that: the service is
+    restarted on every release and draft → ready can span days, so the removed reviewers are
+    read from the PR's **timeline** (`ReviewRequestRemovedEvent` items after the last
+    `ConvertToDraftEvent`, `DRAFT_REMOVALS_FRAGMENT` through `graphqlPullChunk` — one GraphQL
+    request per click, nothing at poll time), deduplicated, then `POST …/requested_reviewers`
+    (no POST when nothing was removed, or the PR was never a draft). Accepted limit: a
+    reviewer removed by hand *while* the PR was a draft is re-requested too. The server looks
+    the key up in **`snapshot.data.mine`**
     (raw union — an unknown key or an others' PR → 400, gh untouched), awaits gh, then flips
     the row **locally** (`row.state`, plus `row.readyAt = now` on ready: the « In review »
     clock §26 starts at once) and responds with the current view — no re-poll (the next one

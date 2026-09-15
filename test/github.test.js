@@ -374,10 +374,56 @@ test('searchPRs: a non-full page ends the loop; a full last page is sliced to ma
 });
 
 // ── draft ⇄ ready (dashboard toggle on my PRs) ──────────────────────────────
-test('markReady: gh pr ready <n> --repo', async () => {
-  const runner = fakeRunner([['pr ready', '✓ Pull request #42 is marked as "ready for review"']]);
+// Timeline stub: the reviewers removed at the last draft conversion are the
+// ReviewRequestRemovedEvent items after the last ConvertToDraftEvent.
+const timeline = (nodes) => JSON.stringify({ data: { p0: { pullRequest: { timelineItems: { nodes } } } } });
+const draftEvent = (createdAt) => ({ __typename: 'ConvertToDraftEvent', createdAt });
+const removed = (createdAt, requestedReviewer) => ({ __typename: 'ReviewRequestRemovedEvent', createdAt, requestedReviewer });
+
+test('markReady: gh pr ready <n> --repo, then re-requests the reviewers removed at the last draft conversion (users + teams, deduplicated)', async () => {
+  const runner = fakeRunner([
+    ['pr ready', '✓ Pull request #42 is marked as "ready for review"'],
+    ['graphql', timeline([
+      removed('2026-09-01T00:00:00Z', { login: 'old' }), // an earlier draft round → ignored
+      draftEvent('2026-09-01T10:00:00Z'),
+      removed('2026-09-10T00:00:00Z', { login: 'alice' }),
+      draftEvent('2026-09-14T10:00:00Z'),
+      removed('2026-09-14T10:00:01Z', { login: 'alice' }),
+      removed('2026-09-14T10:00:01Z', { login: 'bob' }),
+      removed('2026-09-14T10:00:01Z', { slug: 'core' }),
+      removed('2026-09-14T10:00:02Z', { login: 'alice' }),
+      removed('2026-09-14T10:00:03Z', {}), // deleted account: no login, no slug
+    ])],
+    ['requested_reviewers', '{}'],
+  ]);
   await makeGh(runner).markReady('o/r', 42);
-  assert.deepEqual(runner.calls, [['pr', 'ready', '42', '--repo', 'o/r']]);
+  assert.deepEqual(runner.calls[0], ['pr', 'ready', '42', '--repo', 'o/r']);
+  assert.equal(runner.calls[1][1], 'graphql');
+  assert.match(runner.calls[1][3], /CONVERT_TO_DRAFT_EVENT, REVIEW_REQUEST_REMOVED_EVENT/);
+  assert.deepEqual(runner.calls[2], ['api', '-X', 'POST', 'repos/o/r/pulls/42/requested_reviewers',
+    '-f', 'reviewers[]=alice', '-f', 'reviewers[]=bob', '-f', 'team_reviewers[]=core']);
+  assert.equal(runner.calls.length, 3);
+});
+
+test('markReady: nothing removed since the last draft conversion → no POST', async () => {
+  const runner = fakeRunner([
+    ['pr ready', ''],
+    ['graphql', timeline([removed('2026-09-01T00:00:00Z', { login: 'old' }), draftEvent('2026-09-14T10:00:00Z')])],
+  ]);
+  await makeGh(runner).markReady('o/r', 42);
+  assert.equal(runner.calls.length, 2);
+});
+
+test('markReady: never converted to draft (no ConvertToDraftEvent) → no POST', async () => {
+  const runner = fakeRunner([['pr ready', ''], ['graphql', timeline([removed('2026-09-01T00:00:00Z', { login: 'old' })])]]);
+  await makeGh(runner).markReady('o/r', 42);
+  assert.equal(runner.calls.length, 2);
+});
+
+test('markReady: a failing gh pr ready throws (nothing else is attempted)', async () => {
+  const runner = fakeRunner([]);
+  await assert.rejects(() => makeGh(runner).markReady('o/r', 42));
+  assert.equal(runner.calls.length, 1);
 });
 
 test('convertToDraft: gh pr ready --undo, then removes the requested reviewers (users + teams)', async () => {
