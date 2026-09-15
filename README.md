@@ -331,6 +331,11 @@ Same thing on macOS, with a ***user* LaunchAgent**
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.gh-notif.dashboard.plist
 ```
 
+`bootstrap` loads the agent **once**. Run it a second time on an agent that is already loaded and
+launchd answers `Bootstrap failed: 5: Input/output error`, which means « this label is already
+there », not « it is broken » — `launchctl list | grep gh-notif` then shows the PID. The legacy
+`launchctl load` is tolerant of this, `bootstrap` is not.
+
 Three points that make the agent fail if you get them wrong:
 
 - **absolute path to `gh`, and the right one**: launchd resolves the first `ProgramArguments`
