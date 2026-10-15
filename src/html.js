@@ -130,8 +130,8 @@ const link = (url, text, tip = null) =>
 
 // Repository cell. Under an org favorite (`acme/*`), `owner` is implied:
 // bare repo name, the full name stays in the tooltip.
-const repoCell = (r, owner = null) =>
-  link(r.url, owner && r.repo.startsWith(`${owner}/`) ? r.repo.slice(owner.length + 1) : r.repo, r.repo);
+const shortRepo = (repo, owner) => (owner && repo.startsWith(`${owner}/`) ? repo.slice(owner.length + 1) : repo);
+const repoCell = (r, owner = null) => link(r.url, shortRepo(r.repo, owner), r.repo);
 
 const diffTotals = (additions, deletions) =>
   `<span class="add">+${additions || 0}</span> <span class="del">−${deletions || 0}</span>`;
@@ -199,12 +199,13 @@ const STATE_TOGGLE = {
 // `conflicting` = true → « Merge conflicts »; 'stale' → the conflict is a
 // stale stack (§31: trailing commits of a rewritten parent — rebase, not review).
 const CONFLICT_TITLE = { true: 'Merge conflicts', stale: 'Stale stack — trailing commits of a force-pushed or squash-merged parent, rebase' };
-const stateCell = (state, conflicting = false, toggleRow = null) => {
+// `warn` = extra popover line (review-load warning, §42).
+const stateCell = (state, conflicting = false, toggleRow = null, warn = '') => {
   const t = toggleRow ? STATE_TOGGLE[state] : null;
   const key = t ? escapeHtml(`${toggleRow.repo}#${toggleRow.number}`) : '';
   const icon = t
     ? `<button class="state-btn" data-key="${key}" data-to="${t.to}" title="${t.title}">${stateIcon(state)}</button>`
-      + `<div class="state-pop" hidden><p>${t.ask(toggleRow.number)}</p><button class="state-ok" data-key="${key}" data-to="${t.to}">${t.ok}</button></div>`
+      + `<div class="state-pop" hidden><p>${t.ask(toggleRow.number)}</p>${warn}<button class="state-ok" data-key="${key}" data-to="${t.to}">${t.ok}</button></div>`
     : titled(STATE_LABEL[state] || state || '', stateIcon(state));
   return icon + (conflicting ? ` ${titled(CONFLICT_TITLE[conflicting], CONFLICT_ICON)}` : '');
 };
@@ -565,7 +566,7 @@ const stackAttrs = (r) =>
     : r.stackRoot ? ` data-stack-of="${escapeHtml(r.stackRoot)}"`
       : '';
 
-function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = null) {
+function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = null, load = {}) {
   // Hidden rows are never tagged: no party for a PR you chose not to see.
   // partyWorthy gates on the PR's age in business days (easter egg, not a badge).
   const party = !hidden && isMergeable(r) && partyWorthy(r, now)
@@ -581,7 +582,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = nu
     dateCell('Updated', r.updatedAt, now),
     diffCell(r),
     filesCell(r),
-    stateCell(r.state, r.conflicting && (r.staleStack ? 'stale' : true), hidden ? null : r), // a hidden row only offers « restore »
+    stateCell(r.state, r.conflicting && (r.staleStack ? 'stale' : true), hidden ? null : r, loadWarn(r, load, owner)), // a hidden row only offers « restore »
     approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
     threadsCell(r.unresolvedThreads),
     triggersCell(r.triggers),
@@ -596,7 +597,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = nu
   );
 }
 
-function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = [], owner = null) {
+function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = [], owner = null, load = {}) {
   hiddenCols = dropLabelsIfEmpty([...rows, ...(showHidden ? hiddenRows : [])], hiddenCols);
   const headers = dropHidden([
     sortableTh('Repository', 'repo', sort, 'mine'),
@@ -617,7 +618,7 @@ function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks
     '',
   ], MINE_COL_KEYS, hiddenCols);
   const trs = [
-    ...rows.map((r) => mineRow(r, now, false, ignoredChecks, hiddenCols, owner)),
+    ...rows.map((r) => mineRow(r, now, false, ignoredChecks, hiddenCols, owner, load)),
     ...(showHidden ? hiddenRows.map((r) => mineRow(r, now, true, ignoredChecks, hiddenCols, owner)) : []),
   ];
   return table(headers, trs, fitClasses(MINE_COL_KEYS, hiddenCols));
@@ -758,6 +759,43 @@ function coverageBadge(c) {
   return ` <a class="lbl ratio" href="/stats"${style} title="${title}">ratio: ${fmt(c.reviewed, c.merged)}</a>`;
 }
 
+// Review load (§42): team rule of at most 5 PRs ready for review per repo.
+// Shown from 3: yellow, orange, red at the limit, ⚠ once over it. A
+// « pompier » fix (urgent bug) never waits for a slot, so it is not counted.
+export const REVIEW_LIMIT = 5;
+const LOAD_SHOWN_FROM = 3;
+const LOAD_COLORS = { 3: 'fbca04', 4: 'f9a55a', 5: 'd73a4a' };
+const isPompier = (r) => (r.labels ?? []).some((l) => /pompier/i.test(l.name));
+
+export function reviewLoad(rows) {
+  const load = {};
+  for (const r of rows) {
+    if (r.state === 'open' && !isPompier(r)) load[r.repo] = (load[r.repo] ?? 0) + 1;
+  }
+  return load;
+}
+
+function loadPill(repo, n, owner) {
+  const k = labelColors(LOAD_COLORS[Math.min(n, REVIEW_LIMIT)]);
+  const title = `${n} of your PRs are ready for review on ${escapeHtml(repo)} — team limit: ${REVIEW_LIMIT} (drafts and pompier fixes don’t count)`;
+  return `<span class="lbl load" style="--lbl-bg-l:${k.bgLight};--lbl-fg-l:${k.fgLight};--lbl-bg-d:${k.bgDark};--lbl-fg-d:${k.fgDark};--lbl-bd-d:${k.bdDark}" title="${title}">`
+    + `${n > REVIEW_LIMIT ? '⚠ ' : ''}${escapeHtml(shortRepo(repo, owner))} ${n}/${REVIEW_LIMIT}</span>`;
+}
+
+const loadPills = (load, owner) =>
+  Object.entries(load)
+    .filter(([, n]) => n >= LOAD_SHOWN_FROM)
+    .sort(([ra, a], [rb, b]) => b - a || ra.localeCompare(rb))
+    .map(([repo, n]) => ` ${loadPill(repo, n, owner)}`)
+    .join('');
+
+// draft → ready popover line: the count this PR would bring its repo to.
+function loadWarn(r, load, owner) {
+  const n = load[r.repo] ?? 0;
+  if (r.state !== 'draft' || isPompier(r) || n < LOAD_SHOWN_FROM) return '';
+  return `<p class="load-warn">⚠ After this one: ${loadPill(r.repo, n + 1, owner)} in review (team limit: ${REVIEW_LIMIT})</p>`;
+}
+
 export function renderFragment(data, opts = {}) {
   const now = opts.now ?? Date.now();
   const showHidden = !!opts.showHidden;
@@ -794,11 +832,13 @@ export function renderFragment(data, opts = {}) {
       hiddenMineCount > 0
         ? `(${mine.length}, ${hiddenMineCount} hidden)`
         : `(${mine.length})`;
+    // A hidden PR is still awaiting review: it counts.
+    const load = reviewLoad([...mine, ...hiddenMine]);
     const rows = mine.length > 0 || (showHidden && hiddenMineCount > 0)
-      ? mineTable(mine, hiddenMine, now, showHidden, sortMine, ignoredChecks, cols?.mine ?? [], repoOwner)
+      ? mineTable(mine, hiddenMine, now, showHidden, sortMine, ignoredChecks, cols?.mine ?? [], repoOwner, load)
       : '';
     const gear = cols && rows ? colsMenu('mine', MINE_COL_KEYS, cols.mine ?? []) : '';
-    blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}${stacksBtn('mine', mine, !!stacks.mine)}${gear}</h2>${rows}</section>`);
+    blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}${loadPills(load, repoOwner)}${stacksBtn('mine', mine, !!stacks.mine)}${gear}</h2>${rows}</section>`);
   }
   if (others.length > 0 || reviewedUrl || (showHidden && hiddenCount > 0)) {
     const hist = reviewedUrl
@@ -1079,6 +1119,8 @@ ${FAVICON}
   h2 .hist { font-size: .75rem; font-weight: 400; color: var(--fg-muted); }
   h2 .hist:hover { color: var(--accent); }
   h2 .lbl.ratio { vertical-align: middle; text-decoration: none; }
+  /* Review-load pills (§42): never ellipsized, the count is at the end. */
+  .lbl.load { vertical-align: middle; max-width: none; }
   h2 .lbl.ratio:hover { filter: brightness(1.08); }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: .5rem 1rem; border-bottom: 1px solid var(--border-muted); white-space: nowrap; }

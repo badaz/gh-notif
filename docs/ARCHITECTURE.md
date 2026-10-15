@@ -1413,6 +1413,21 @@ sequenceDiagram
     The count lives on the detail, so `buildRow` carries it to the dashboard and the search
     page (§29) alike. `reviewThreads(first: 100)`: beyond, the count is truncated (rare).
 
+42. **Review load (pills in « Your open PRs », team limit of 5 per repo).** Team rule: at most
+    `REVIEW_LIMIT` (5) of my PRs ready for review per repo, the next one goes ready once one is
+    merged. `reviewLoad(rows)` (html.js, pure, exported) counts per repo my PRs in the
+    **`open`** state — drafts don't count, nor a PR with a label matching `/pompier/i`
+    (urgent bug fix: it never waits for a slot). Fed by **`mine` + `hiddenMine`**: hiding a
+    PR does not take it out of review. Computed at render on the already filtered view (§14:
+    active favorite), zero GitHub call. Rendered (`loadPills`) after « closed ↗ » as `.lbl
+    load` pills, **only from 3** (`LOAD_SHOWN_FROM`: below, nothing to watch), highest first:
+    3 yellow, 4 orange, 5 red, over 5 red with a `⚠` — the `RATIO_COLORS` hexes through
+    `labelColors` (§25, light/dark for free). Bare repo name under an org favorite
+    (`shortRepo`, shared with the Repository column). `.lbl.load` drops the `.lbl`
+    `max-width`: an ellipsis would cut the count, which sits at the end. The draft → ready
+    popover (§30) carries the same pill with the count **after** the click (`loadWarn`), when
+    the repo already shows a pill and the PR is not a pompier fix. Nothing is blocked.
+
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no

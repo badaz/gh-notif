@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, ratioColor, renderStatsFavorites, renderStatsFragment, renderStatsShell, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
+import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, ratioColor, reviewLoad, renderStatsFavorites, renderStatsFragment, renderStatsShell, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
 import { STACK_HUES } from '../src/sort.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
@@ -122,6 +122,43 @@ test('renderFragment: my open PR → the 🟢 is a button proposing « convert t
   const out = renderFragment({ mine: [myRow({ state: 'open' })], others: [] }, { now: NOW });
   assert.match(out, /<button class="state-btn" data-key="stark\/web#120" data-to="draft" title="Open — click to convert to draft">🟢<\/button>/);
   assert.match(out, /<div class="state-pop" hidden>[\s\S]*Convert #120 back to draft\? Its requested reviewers will be removed, and re-requested once it is ready again\.[\s\S]*<button class="state-ok" data-key="stark\/web#120" data-to="draft">Convert to draft<\/button>/);
+});
+
+// ── review load: my PRs ready for review per repo, team limit 5 (§42) ─────────
+test('reviewLoad: counts my open PRs per repo — drafts, merged/closed and « pompier » fixes excluded', () => {
+  const rows = [
+    myRow(), myRow({ number: 2 }), myRow({ number: 3, state: 'draft' }), myRow({ number: 4, state: 'merged' }),
+    myRow({ number: 5, labels: [{ name: '🚒 Pompier', color: 'd73a4a' }] }),
+    myRow({ repo: 'stark/api', number: 6 }),
+  ];
+  assert.deepEqual(reviewLoad(rows), { 'stark/web': 2, 'stark/api': 1 });
+});
+
+test('renderFragment: a review-load pill per repo from 3 PRs in review, hidden ones counted, highest first', () => {
+  const open = (repo, n) => Array.from({ length: n }, (_, i) => myRow({ repo, number: 100 + i }));
+  const data = { mine: [...open('stark/web', 2), ...open('stark/api', 3), ...open('stark/ui', 2)], hiddenMine: [myRow({ number: 99 })], hiddenMineCount: 1, others: [] };
+  const out = renderFragment(data, { now: NOW });
+  const pills = [...out.matchAll(/<span class="lbl load"[^>]*>([^<]*)<\/span>/g)].map((m) => m[1]);
+  assert.deepEqual(pills, ['stark/api 3/5', 'stark/web 3/5'], 'ui (2) below the threshold; web = 2 visible + 1 hidden');
+  assert.match(out, /<span class="lbl load" style="--lbl-bg-l:#fbca04;[^"]*" title="3 of your PRs are ready for review on stark\/api — team limit: 5 \(drafts and pompier fixes don’t count\)">/);
+});
+
+test('renderFragment: review-load colors — 4 orange, 5 red, over the limit red with ⚠; bare repo name under an org favorite', () => {
+  const open = (n) => Array.from({ length: n }, (_, i) => myRow({ number: 100 + i }));
+  const pill = (n) => renderFragment({ mine: open(n), others: [] }, { now: NOW, repoOwner: 'stark' }).match(/<span class="lbl load"[^>]*>[^<]*<\/span>/)[0];
+  assert.match(pill(4), /--lbl-bg-l:#f9a55a;[^>]*>web 4\/5</);
+  assert.match(pill(5), /--lbl-bg-l:#d73a4a;[^>]*>web 5\/5</);
+  assert.match(pill(6), /--lbl-bg-l:#d73a4a;[^>]*>⚠ web 6\/5</);
+});
+
+test('renderFragment: the draft → ready popover warns once the repo has 3 PRs in review, with the count it would reach', () => {
+  const open = (n) => Array.from({ length: n }, (_, i) => myRow({ number: 100 + i }));
+  const draft = myRow({ number: 120, state: 'draft' });
+  const pop = (out) => out.match(/<div class="state-pop" hidden><p>Mark #120[\s\S]*?<\/div>/)[0];
+  assert.match(pop(renderFragment({ mine: [...open(3), draft], others: [] }, { now: NOW })), /<p class="load-warn">⚠ After this one: <span class="lbl load" style="--lbl-bg-l:#f9a55a;[^"]*"[^>]*>stark\/web 4\/5<\/span> in review \(team limit: 5\)<\/p>/);
+  assert.ok(!pop(renderFragment({ mine: [...open(2), draft], others: [] }, { now: NOW })).includes('load-warn'), 'below 3: no warning');
+  const pompier = myRow({ number: 120, state: 'draft', labels: [{ name: 'pompier', color: 'd73a4a' }] });
+  assert.ok(!pop(renderFragment({ mine: [...open(4), pompier], others: [] }, { now: NOW })).includes('load-warn'), 'a pompier fix takes no slot');
 });
 
 test('renderFragment: no state button on merged/closed, on others\' PRs, nor on hidden rows', () => {

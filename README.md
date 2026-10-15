@@ -17,7 +17,9 @@ Running `gh notif` starts a tiny local web server and opens the dashboard:
 The dashboard shows **two tables**:
 
 - **📥 Your open PRs** — all your open PRs (a dashboard), with their status, the number of reviews
-  received, the CI status and any activity triggers.
+  received, the CI status and any activity triggers. Its title shows a **review-load pill** per
+  repo where 3 or more of your PRs await review (`ticketing 4/5`: yellow, orange, red at the team
+  limit of 5); drafts and PRs labeled `pompier` don't count.
 - **👥 Activity on others' PRs** — others' PRs that concern you (requested reviews, mentions,
   replies to your threads), with author, opening date, diff size, status, number of reviews, CI.
 
@@ -196,7 +198,8 @@ From the page, you can:
 
 - **🔄 refresh** immediately (without waiting for the next poll);
 - **draft ⇄ ready** one of your PRs: click its 📝 (→ ready for review) or 🟢 (→ back to draft,
-  requested reviewers removed) and confirm in the popover;
+  requested reviewers removed) and confirm in the popover — marking ready warns when the repo
+  already has 3 or more of your PRs in review;
 - **hide / restore** one of the others' PRs via the **✕** button on its row (persisted; reappears on
   a new trigger — reply to your thread, mention, comment), and **🙈 hidden** shows the hidden PRs
   (greyed out, restore button). Your own PRs are never hidden. The list is persisted in
